@@ -732,7 +732,7 @@ struct SettingsView: View {
     private func providerStatusText(mode: RecognitionMode, isConfigured: Bool) -> String {
         switch mode {
         case .local:
-            return "本地识别，不需要云端参数"
+            return "本地识别，需启用系统听写"
         case .doubao:
             return isConfigured ? "豆包参数已就绪" : "需要填写豆包参数"
         case .qwen:

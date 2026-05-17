@@ -255,6 +255,17 @@ final class LocalSpeechProvider: NSObject, SpeechProvider, @unchecked Sendable {
     private func failureInfo(for error: Error) -> SessionFailureInfo {
         let nsError = error as NSError
         let rawMessage = error.localizedDescription
+        let isDictationDisabled = nsError.domain == "kSRErrorDomain" && nsError.code == 201
+            || rawMessage.localizedCaseInsensitiveContains("siri and dictation are disabled")
+            || rawMessage.localizedCaseInsensitiveContains("dictation")
+
+        if isDictationDisabled {
+            return SessionFailureInfo(
+                message: "系统听写已关闭，本地识别不可用。请打开「系统设置 > 键盘 > 听写」，启用听写后再试；也可以先切换到豆包/千问。",
+                isNoSpeech: false
+            )
+        }
+
         let isAppleNoSpeech = nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110
             || rawMessage.localizedCaseInsensitiveContains("no speech")
             || rawMessage.localizedCaseInsensitiveContains("没有语音")

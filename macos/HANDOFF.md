@@ -22,6 +22,22 @@ This file is the first-stop handoff note for switching between Codex, Claude Cod
 - 重新打 DMG 后，用新包覆盖安装，观察 Launchpad/应用列表第一次刷新是否比之前稳定。
 - 即使图标缓存仍有延迟，用户通过搜索打开是正常路径；app 启动后应出现设置窗口和菜单栏入口。
 
+### 本地识别报 `Siri and Dictation are disabled (kSRErrorDomain 201)`（已加中文诊断）
+
+**用户反馈：**
+- 问题机上的气泡提示：`本地识别已关闭：Siri and Dictation are disabled (kSRErrorDomain 201)`。
+
+**判断：**
+- 这不是录音没采到，也不是音频格式问题，而是 macOS Apple Speech 运行时被系统听写/Siri 开关挡住。
+- 即使 GuGuTalk 的“麦克风”和“语音识别”隐私权限已授权，只要系统 `键盘 > 听写` 关闭，本地 Apple Speech 仍会返回 `kSRErrorDomain 201`。
+
+**本轮修复：**
+- `LocalSpeechProvider` 现在单独识别 `kSRErrorDomain 201` / `Siri and Dictation are disabled`，提示用户打开「系统设置 > 键盘 > 听写」，或切换豆包/千问。
+- 权限页和输入引擎状态文案补充：本地识别需要启用系统听写。
+
+**待验证：**
+- 在问题机上打开 `系统设置 > 键盘 > 听写`，启用听写；如果受公司/屏幕使用时间/MDM 限制无法开启，本地识别不可用，只能切云端模式。
+
 ### macOS 15.7.3 本地 Apple Speech 一开始就“没听清”（已实现，待问题机复测）
 
 **用户反馈：**

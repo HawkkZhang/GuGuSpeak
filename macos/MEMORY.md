@@ -109,6 +109,14 @@ These changes are synced to GitHub on `main`:
 - Current packaging fix: Xcode `PRODUCT_NAME` and product reference now build `GuGuTalk.app` with executable `GuGuTalk`; `package-dmg.sh` stages that product directly instead of renaming `DesktopVoiceInput.app`.
 - The bundle identifier is intentionally unchanged (`com.end.DesktopVoiceInput`) to avoid resetting microphone/speech/accessibility permissions and local user defaults.
 
+### Local Apple Speech requires system Dictation to be enabled
+
+- User shared a runtime overlay showing: `Siri and Dictation are disabled (kSRErrorDomain 201)`.
+- This means Apple Speech itself is blocked by the macOS Dictation/Siri setting, even if GuGuTalk already has microphone and Speech Recognition privacy permission.
+- GuGuTalk cannot bypass this system switch for local recognition. The user must enable `System Settings > Keyboard > Dictation`, or use Doubao/Qwen.
+- Current code maps `kSRErrorDomain 201` and related Dictation-disabled messages to a Chinese action message instead of exposing the raw English Apple error.
+- Settings copy now reminds that local recognition requires system Dictation to be enabled.
+
 ### macOS 15.7.3 local Apple Speech no-speech regression
 
 - User clarified that the remaining "didn't hear speech" failure happens on macOS Sequoia 15.7.3 and uses the Mac local recognition mode; the current development machine does not reproduce it.

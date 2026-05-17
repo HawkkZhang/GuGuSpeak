@@ -26,7 +26,7 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
         case .microphone:
             "采集说话声音。未授权时无法录音。"
         case .speechRecognition:
-            "用于本地语音转文字。云端模式可作为兜底。"
+            "用于本地语音转文字。本地模式还需要在系统键盘设置里启用听写。"
         case .accessibility:
             "把识别结果写回当前输入框。未授权时只能预览。"
         case .inputMonitoring:
