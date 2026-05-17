@@ -4,6 +4,24 @@ This file is the first-stop handoff note for switching between Codex, Claude Cod
 
 ## Recent Fixes - 2026-05-17
 
+### 首次安装后只能搜索到，打开后才在应用列表/托盘里出现（已收紧打包身份）
+
+**用户反馈：**
+- 第一次安装完，GuGuTalk 能在应用搜索里搜出来并打开，但一开始在应用列表/托盘里找不到；打开之后又能找到了。
+
+**判断：**
+- 这更像 macOS LaunchServices / Launchpad 的缓存刷新问题：拖拽安装或覆盖安装后，搜索索引可能比可见网格更早更新；首次打开 app 后缓存刷新，图标才稳定出现。
+- 之前打包还有一个会放大混乱的点：DMG 里外层改名成 `GuGuTalk.app`，但 Xcode 原始产物和可执行文件仍叫 `DesktopVoiceInput.app` / `DesktopVoiceInput`。
+
+**本轮修复：**
+- Xcode `PRODUCT_NAME` 改为 `GuGuTalk`，Release 产物现在直接是 `GuGuTalk.app`，可执行文件也是 `GuGuTalk`。
+- `package-dmg.sh` 现在直接从 Release `GuGuTalk.app` 打包，不再把 `DesktopVoiceInput.app` 临时重命名。
+- Bundle ID 保持 `com.end.DesktopVoiceInput`，避免升级时重置麦克风、语音识别、辅助功能权限和本地设置。
+
+**待验证：**
+- 重新打 DMG 后，用新包覆盖安装，观察 Launchpad/应用列表第一次刷新是否比之前稳定。
+- 即使图标缓存仍有延迟，用户通过搜索打开是正常路径；app 启动后应出现设置窗口和菜单栏入口。
+
 ### macOS 15.7.3 本地 Apple Speech 一开始就“没听清”（已实现，待问题机复测）
 
 **用户反馈：**

@@ -41,7 +41,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		10000000000000000000000D /* DesktopVoiceInput.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DesktopVoiceInput.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		10000000000000000000000D /* GuGuTalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GuGuTalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000011 /* DesktopVoiceInput-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "DesktopVoiceInput-Info.plist"; sourceTree = "<group>"; };
 		200000000000000000000001 /* DesktopVoiceInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopVoiceInput.swift; sourceTree = "<group>"; };
 		200000000000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -99,7 +99,7 @@
 		100000000000000000000002 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				10000000000000000000000D /* DesktopVoiceInput.app */,
+				10000000000000000000000D /* GuGuTalk.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -207,7 +207,7 @@
 			);
 			name = DesktopVoiceInput;
 			productName = DesktopVoiceInput;
-			productReference = 10000000000000000000000D /* DesktopVoiceInput.app */;
+			productReference = 10000000000000000000000D /* GuGuTalk.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -315,7 +315,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.end.DesktopVoiceInput;
 				PRODUCT_MODULE_NAME = DesktopVoiceInput;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = GuGuTalk;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -344,7 +344,7 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.end.DesktopVoiceInput;
 				PRODUCT_MODULE_NAME = DesktopVoiceInput;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = GuGuTalk;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";

@@ -16,7 +16,7 @@ cd "$ROOT_DIR"
 COMMIT="$(git rev-parse --short HEAD)"
 DATE_TAG="$(date +%Y%m%d-%H%M)"
 DMG_PATH="$OUTPUT_DIR/GuGuTalk-${DATE_TAG}-${COMMIT}.dmg"
-APP_SRC="$DERIVED_DATA_PATH/Build/Products/Release/DesktopVoiceInput.app"
+APP_SRC="$DERIVED_DATA_PATH/Build/Products/Release/GuGuTalk.app"
 
 mkdir -p "$OUTPUT_DIR"
 

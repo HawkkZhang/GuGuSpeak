@@ -55,7 +55,7 @@
 - The latest synced checkpoint is on `main`; use `git log --oneline -1` for the exact current commit.
 - GitHub repository: `https://github.com/HawkkZhang/GuGuTalk`.
 - Local development branch is currently `main`, tracking `origin/main`.
-- Product name and GitHub repository are currently `GuGuTalk`; Xcode project and internal target names still include `DesktopVoiceInput`.
+- Product name and GitHub repository are currently `GuGuTalk`; the Xcode target/project and Swift module still include `DesktopVoiceInput`, but Xcode now builds the user-facing app bundle and executable as `GuGuTalk.app` / `GuGuTalk`. The bundle identifier intentionally remains `com.end.DesktopVoiceInput` to preserve upgrades, permissions, and local settings continuity.
 - Current UI direction is `Aqua Chick Companion`: theme colors are derived from the app icon, with icon-aqua as the main action/selection color and icon-orange only as a small warmth accent. The UI should use custom refined controls, system font, compact Mac utility structure, no gray glassmorphism, no neon/cyber styling.
 - Dark mode should use aqua as a restrained accent, not a large luminous wash. Settings surfaces should stay low-saturation charcoal-teal, with selected controls clearly visible but not bright cyan.
 - Recording overlay normal states should use one consistent icon-aqua theme surface between the initial waveform state and the live transcript state; avoid hidden square backgrounds, heavy shadows, and glass-like frames around the rounded shape.
@@ -100,6 +100,14 @@ These changes are synced to GitHub on `main`:
 - Clipboard paste logging is intentionally conservative: it reports that paste was dispatched, not that the target field definitely accepted it.
 
 ## Latest Fixes - 2026-05-17
+
+### First install only searchable before Launchpad/menu refresh
+
+- User clarified the first-install issue as: GuGuTalk could be found through app search, but was not immediately visible in the app grid/tray until after opening.
+- This matches macOS LaunchServices/Launchpad caching after drag-install or overwrite-install. A searched app can launch before the visible grid fully refreshes; launching once often causes the cache to update.
+- Previous build also amplified the confusion because the staged DMG app was renamed to `GuGuTalk.app`, but the Xcode build product and executable were still `DesktopVoiceInput.app` / `DesktopVoiceInput`.
+- Current packaging fix: Xcode `PRODUCT_NAME` and product reference now build `GuGuTalk.app` with executable `GuGuTalk`; `package-dmg.sh` stages that product directly instead of renaming `DesktopVoiceInput.app`.
+- The bundle identifier is intentionally unchanged (`com.end.DesktopVoiceInput`) to avoid resetting microphone/speech/accessibility permissions and local user defaults.
 
 ### macOS 15.7.3 local Apple Speech no-speech regression
 
