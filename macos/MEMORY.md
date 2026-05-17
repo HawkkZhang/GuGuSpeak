@@ -115,6 +115,7 @@ These changes are synced to GitHub on `main`:
 - This means Apple Speech itself is blocked by the macOS Dictation/Siri setting, even if GuGuTalk already has microphone and Speech Recognition privacy permission.
 - GuGuTalk cannot bypass this system switch for local recognition. The user must enable `System Settings > Keyboard > Dictation`, or use Doubao/Qwen.
 - Current code maps `kSRErrorDomain 201` and related Dictation-disabled messages to a Chinese action message instead of exposing the raw English Apple error.
+- `RecognitionOrchestrator.friendlyErrorMessage` also maps the same raw message as a defensive fallback, because older provider paths or in-flight old app processes may surface the raw Apple text.
 - Settings copy now reminds that local recognition requires system Dictation to be enabled.
 
 ### macOS 15.7.3 local Apple Speech no-speech regression

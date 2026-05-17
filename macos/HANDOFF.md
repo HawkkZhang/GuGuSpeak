@@ -33,6 +33,7 @@ This file is the first-stop handoff note for switching between Codex, Claude Cod
 
 **本轮修复：**
 - `LocalSpeechProvider` 现在单独识别 `kSRErrorDomain 201` / `Siri and Dictation are disabled`，提示用户打开「系统设置 > 键盘 > 听写」，或切换豆包/千问。
+- `RecognitionOrchestrator.friendlyErrorMessage` 也加了同一条兜底映射，避免旧路径或旧进程继续把 Apple 英文底层错误透出来。
 - 权限页和输入引擎状态文案补充：本地识别需要启用系统听写。
 
 **待验证：**

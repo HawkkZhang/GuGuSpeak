@@ -764,6 +764,12 @@ final class RecognitionOrchestrator: ObservableObject {
 
     private func friendlyErrorMessage(_ error: Error) -> String {
         let raw = error.localizedDescription.lowercased()
+        if raw.contains("ksrerrordomain 201")
+            || raw.contains("siri and dictation are disabled")
+            || raw.contains("dictation are disabled")
+            || raw.contains("系统听写已关闭") {
+            return "系统听写已关闭，本地识别不可用。请打开「系统设置 > 键盘 > 听写」，启用听写后再试；也可以先切换到豆包/千问。"
+        }
         if raw.contains("cancelled") || raw.contains("cancel") {
             return "识别被中断"
         }
