@@ -612,7 +612,11 @@ final class RecognitionOrchestrator: ObservableObject {
                     fail(message: friendlyErrorMessage(failure))
                 }
             } else {
-                dismissQuietly(message: "说话时间太短，没有识别到内容")
+                if failure.isNoSpeech {
+                    dismissQuietly(message: failure.message)
+                } else {
+                    fail(message: friendlyErrorMessage(failure))
+                }
             }
         case .sessionEnded:
             finishSession(reason: "provider emitted sessionEnded")

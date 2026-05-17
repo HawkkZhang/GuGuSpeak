@@ -103,8 +103,14 @@ struct ProviderSwitchInfo: Sendable {
 
 struct SessionFailureInfo: LocalizedError, Sendable {
     let message: String
+    let isNoSpeech: Bool
 
     var errorDescription: String? { message }
+
+    init(message: String, isNoSpeech: Bool = false) {
+        self.message = message
+        self.isNoSpeech = isNoSpeech
+    }
 }
 
 enum TranscriptEvent: Sendable {

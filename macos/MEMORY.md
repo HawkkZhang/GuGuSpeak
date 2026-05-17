@@ -66,6 +66,7 @@
 - If the user manually triggers a new recording while previous recognition work is still active, the app should cancel the previous session/work first and then start the new session. This includes startup handshakes, active providers, audio capture, final timeout, stale provider events, and AI post-processing.
 - Capture now starts microphone audio immediately after permissions pass, before cloud/local provider startup completes. Audio captured during provider startup is held in a bounded 4-second pre-roll buffer and flushed to the selected provider once ready, reducing dropped opening words and false "no speech heard" results.
 - Orchestrator-level audio sends must also stay serialized. Pre-roll audio and live audio now enter a single `AudioSendQueue`, and `finishAudio()` waits for that queue to drain so the provider never receives an end frame before earlier captured audio.
+- Local Apple Speech must not assume a fixed runtime audio format. Keep cloud PCM as `16k Int16`, but feed local recognition through `SFSpeechAudioBufferRecognitionRequest.nativeAudioFormat` and check `supportsOnDeviceRecognition` before requiring on-device recognition.
 - The 300 ms tail-buffer delay after key release should keep accepting audio until capture is actually stopped; do not reintroduce a guard that drops chunks merely because finish has been requested.
 - GuGuTalk must be usable inside its own text fields, including prompt and provider configuration fields. Shortcut recording should suspend global hotkeys only while recording a shortcut; do not block all insertion just because the foreground app is GuGuTalk.
 - Doubao diagnostics intentionally log raw provider transcript text and normalized transcript text in Release builds while this issue is being verified. Each update is printed as `[DoubaoTranscript]` and also appended to `~/Library/Logs/GuGuTalk/doubao-transcripts.log`. Remove or gate these transcript-content logs before a privacy-sensitive public release.
@@ -97,6 +98,28 @@ These changes are synced to GitHub on `main`:
 - WeChat insertion now has a per-app stable path: Accessibility insertion first, targeted Unicode keyboard events second, clipboard paste only as the final fallback.
 - Non-AI final recognition now actively schedules overlay dismissal after successful insertion instead of depending only on provider `sessionEnded`.
 - Clipboard paste logging is intentionally conservative: it reports that paste was dispatched, not that the target field definitely accepted it.
+
+## Latest Fixes - 2026-05-17
+
+### macOS 15.7.3 local Apple Speech no-speech regression
+
+- User clarified that the remaining "didn't hear speech" failure happens on macOS Sequoia 15.7.3 and uses the Mac local recognition mode; the current development machine does not reproduce it.
+- This is separate from the Doubao/Qwen send-order issue. The likely weak point is Apple Speech local recognition compatibility.
+- Evidence from Apple SDK headers:
+  - `requiresOnDeviceRecognition` only applies if `SFSpeechRecognizer.supportsOnDeviceRecognition` is true.
+  - `SFSpeechAudioBufferRecognitionRequest` exposes `nativeAudioFormat` and expects native/uncompressed audio buffers.
+- The previous code forced `requiresOnDeviceRecognition = true` without checking `supportsOnDeviceRecognition`, and reused the cloud-oriented fixed `16k Int16` converted buffer as the Apple Speech `nativeBuffer`.
+- On the current machine, `SFSpeechAudioBufferRecognitionRequest().nativeAudioFormat` is also `1 ch, 16000 Hz, Int16`, so the bug can be hidden locally. On macOS 15.7.3 or on machines with different language-resource state, that assumption may fail.
+- Current code changes:
+  - `AudioCaptureEngine` still produces `16k Int16 pcmData` for cloud providers, but now stores a copied microphone source buffer in `AudioChunk.nativeBuffer`.
+  - `LocalSpeechProvider` checks `recognizer.supportsOnDeviceRecognition` before setting `requiresOnDeviceRecognition`.
+  - `LocalSpeechProvider` converts local audio to the request's runtime `nativeAudioFormat` before appending it to Apple Speech.
+  - Local Speech logs now include locale, on-device support, native request format, first audio chunk formats/durations/levels, and Apple error domain/code plus observed audio duration/level.
+  - `SessionFailureInfo` now carries `isNoSpeech`; `RecognitionOrchestrator` only dismisses quietly for true no-speech. Non-no-speech local engine failures are surfaced as errors instead of being mislabeled as "too short".
+- Verification:
+  - `swift test` passed 22 tests.
+  - Debug `xcodebuild` passed.
+- Needs real retest on the macOS Sequoia 15.7.3 machine. If it still fails with audible input and `supportsOnDevice=true`, treat it as a system local-engine compatibility issue and recommend Doubao/Qwen fallback or repairing system dictation resources.
 
 ## Latest Fixes - 2026-05-16
 

@@ -34,6 +34,7 @@ final class AudioCaptureEngine {
             guard let self else { return }
             guard let convertedBuffer = self.convert(buffer: buffer) else { return }
             guard let pcmData = convertedBuffer.int16PCMData else { return }
+            let nativeBuffer = buffer.copyForAsyncUse() ?? convertedBuffer
 
             let audioLevel = convertedBuffer.rmsLevel
             let chunk = AudioChunk(
@@ -41,7 +42,7 @@ final class AudioCaptureEngine {
                 sampleRate: self.targetFormat.sampleRate,
                 channels: Int(self.targetFormat.channelCount),
                 audioLevel: audioLevel,
-                nativeBuffer: convertedBuffer
+                nativeBuffer: nativeBuffer
             )
 
             Task {
@@ -93,6 +94,41 @@ final class AudioCaptureEngine {
 }
 
 private extension AVAudioPCMBuffer {
+    func copyForAsyncUse() -> AVAudioPCMBuffer? {
+        guard let copiedBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameLength) else {
+            return nil
+        }
+
+        copiedBuffer.frameLength = frameLength
+
+        let frameCount = Int(frameLength)
+        let channelCount = max(1, Int(format.channelCount))
+        let buffersToCopy = format.isInterleaved ? 1 : channelCount
+        let samplesPerBuffer = frameCount * (format.isInterleaved ? channelCount : 1)
+
+        switch format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let source = floatChannelData, let destination = copiedBuffer.floatChannelData else { return nil }
+            for index in 0..<buffersToCopy {
+                destination[index].update(from: source[index], count: samplesPerBuffer)
+            }
+        case .pcmFormatInt16:
+            guard let source = int16ChannelData, let destination = copiedBuffer.int16ChannelData else { return nil }
+            for index in 0..<buffersToCopy {
+                destination[index].update(from: source[index], count: samplesPerBuffer)
+            }
+        case .pcmFormatInt32:
+            guard let source = int32ChannelData, let destination = copiedBuffer.int32ChannelData else { return nil }
+            for index in 0..<buffersToCopy {
+                destination[index].update(from: source[index], count: samplesPerBuffer)
+            }
+        default:
+            return nil
+        }
+
+        return copiedBuffer
+    }
+
     var int16PCMData: Data? {
         guard let channelData = int16ChannelData else { return nil }
         let samples = Int(frameLength)

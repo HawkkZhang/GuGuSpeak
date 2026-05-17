@@ -2,6 +2,45 @@
 
 This file is the first-stop handoff note for switching between Codex, Claude Code, Xcode, and other development tools.
 
+## Recent Fixes - 2026-05-17
+
+### macOS 15.7.3 本地 Apple Speech 一开始就“没听清”（已实现，待问题机复测）
+
+**用户反馈：**
+- 问题发生在 macOS Sequoia `15.7.3`，当前开发机无法复现。
+- 使用的是 Mac 本地识别，不是豆包/千问。
+- 现象仍是录音一开始就提示“没听清”。
+
+**本轮定位：**
+- 这一路径和之前豆包 WebSocket finish 抢跑不是同一个问题。
+- 本地 provider 使用 `SFSpeechAudioBufferRecognitionRequest` + `requiresOnDeviceRecognition = true`。
+- Apple SDK 文档/头文件说明：`requiresOnDeviceRecognition` 只有在 `SFSpeechRecognizer.supportsOnDeviceRecognition == true` 时才有意义；并且 `SFSpeechAudioBufferRecognitionRequest` 有 `nativeAudioFormat`，append 的音频应是 native/uncompressed。
+- 旧逻辑没有检查 `supportsOnDeviceRecognition`，也把 `AudioCaptureEngine` 转好的固定 `16k Int16` buffer 同时给云端和 Apple Speech 使用。
+- 在当前开发机上，`SFSpeechAudioBufferRecognitionRequest().nativeAudioFormat` 恰好也是 `1 ch, 16000 Hz, Int16`，所以正常；但在 macOS 15.7.3 或不同语言资源状态下，这个假设可能不成立。
+- 旧错误处理还会把本地引擎错误且无 partial 的情况统一显示成“说话时间太短，没有识别到内容”，掩盖真实的系统/语言资源问题。
+
+**本轮修复：**
+- `AudioCaptureEngine` 现在在保留云端所需 `16k Int16 pcmData` 的同时，为 `AudioChunk.nativeBuffer` 保存一份麦克风原始 buffer 副本，供本地 Apple Speech 使用。
+- `LocalSpeechProvider` 启动时检查 `recognizer.supportsOnDeviceRecognition`；不支持时直接报“当前 macOS 或语言包不支持本地离线识别”，避免误报没听清。
+- `LocalSpeechProvider` 现在按 `SFSpeechAudioBufferRecognitionRequest.nativeAudioFormat` 动态转换本地识别音频，而不是假设所有系统都使用固定格式。
+- 本地识别日志新增：
+  - locale
+  - `supportsOnDeviceRecognition`
+  - request native audio format
+  - 前 3 个音频 chunk 的 source/request format、duration、audio level
+  - Apple Speech error domain/code、累计音频时长、最大音量
+- 如果 Apple Speech 返回 no-speech，但麦克风已经收到明显音频，UI 会提示“本地识别引擎没有返回文字，但麦克风已经收到声音”，指向 macOS 本地识别模型/音频格式兼容问题，而不是继续提示普通短句没听清。
+
+**验证：**
+- `swift test` passed：22 tests。
+- Debug `xcodebuild` passed。
+
+**待实测：**
+- 需要在 macOS Sequoia `15.7.3` 问题机上安装此版本，用“本地”模式复测。
+- 如果仍失败，优先看 Console 中 `LocalSpeech` 分类日志：`supportsOnDevice`、`requestNativeFormat`、`Appending local speech audio` 和 `Apple Speech error`。
+- 如果 `supportsOnDevice=false`，这台机器的本地离线识别资源不可用，应切云端或修系统听写/语音资源。
+- 如果 `supportsOnDevice=true`、音量和时长都正常但仍 `no speech`，基本可判定为该系统版本/语言模型的 Apple Speech 本地引擎兼容问题；下一步应在设置里对本地模式提示降级/建议切换云端。
+
 ## Recent Fixes - 2026-05-16
 
 ### 预录修复后短句一直“没听清”（已实现，待用户真实按键复测）
