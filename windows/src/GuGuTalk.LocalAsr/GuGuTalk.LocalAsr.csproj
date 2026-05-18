@@ -25,19 +25,7 @@
   <Target Name="DownloadAsrModel"
           BeforeTargets="BeforeBuild"
           Condition="!Exists('$(ModelOutputDir)\tokens.txt')">
-    <Message Importance="high" Text="==> Downloading ASR model: $(ModelName)" />
-    <MakeDir Directories="$(ModelCacheDir)" />
-    <MakeDir Directories="$(MSBuildThisFileDirectory)bundled-models" />
-
-    <DownloadFile
-      SourceUrl="$(ModelUrl)"
-      DestinationFolder="$(ModelCacheDir)"
-      DestinationFileName="$(ModelArchive)"
-      Condition="!Exists('$(ModelCacheDir)\$(ModelArchive)')"
-      Retries="3" />
-
-    <Message Importance="high" Text="==> Extracting model to bundled-models\" />
-    <Exec Command="tar -xjf &quot;$(ModelCacheDir)\$(ModelArchive)&quot; -C &quot;$(MSBuildThisFileDirectory)bundled-models&quot;"
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)download-model.ps1&quot; -ModelName &quot;$(ModelName)&quot; -ModelUrl &quot;$(ModelUrl)&quot; -CacheDir &quot;$(ModelCacheDir)&quot; -OutDir &quot;$(MSBuildThisFileDirectory)bundled-models&quot;"
           WorkingDirectory="$(MSBuildThisFileDirectory)" />
 
     <Error Text="Model extraction failed: tokens.txt not found at $(ModelOutputDir)"
