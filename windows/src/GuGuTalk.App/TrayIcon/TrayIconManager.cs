@@ -1,4 +1,5 @@
 using System.Windows;
+using GuGuTalk.Core.Models;
 using GuGuTalk.Core.Services;
 using GuGuTalk.Core.Settings;
 using Hardcodet.Wpf.TaskbarNotification;

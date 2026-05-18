@@ -8,7 +8,7 @@ namespace GuGuTalk.Core.Services;
 public sealed class AudioCaptureEngine : IAudioCaptureEngine, IDisposable
 {
     private static readonly ILogger Logger = Log.ForContext<AudioCaptureEngine>();
-    private static readonly WaveFormat TargetFormat = new(sampleRate: 16000, bits: 16, channels: 1);
+    private static readonly WaveFormat TargetFormat = new(16000, 16, 1);
 
     private WasapiCapture? _capture;
     private Func<AudioChunk, Task>? _handler;

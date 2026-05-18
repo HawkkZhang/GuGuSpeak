@@ -2,6 +2,7 @@ using System.Windows;
 using GuGuTalk.App.Interop;
 using GuGuTalk.App.TrayIcon;
 using GuGuTalk.App.Views;
+using GuGuTalk.Core.Models;
 using GuGuTalk.Core.Providers;
 using GuGuTalk.Core.Services;
 using GuGuTalk.Core.Settings;

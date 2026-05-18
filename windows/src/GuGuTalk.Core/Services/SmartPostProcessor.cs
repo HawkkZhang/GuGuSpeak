@@ -88,7 +88,7 @@ public sealed class SmartPostProcessor
     }
 
     private static string RemoveAllPunctuation(string text) =>
-        new(text.Where(c => !IsCjkPunctuation(c) && !char.IsPunctuation(c)).ToArray()).Trim();
+        new string(text.Where(c => !IsCjkPunctuation(c) && !char.IsPunctuation(c)).ToArray()).Trim();
 
     private static string ReplacePunctuationWithSpace(string text)
     {

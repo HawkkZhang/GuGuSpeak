@@ -106,7 +106,6 @@ public partial class HotkeyRecorderDialog : Window
     {
         Key.Space => "Space",
         Key.Oem3 => "`",
-        Key.OemTilde => "`",
         Key.OemMinus => "-",
         Key.OemPlus => "=",
         _ => key.ToString()
