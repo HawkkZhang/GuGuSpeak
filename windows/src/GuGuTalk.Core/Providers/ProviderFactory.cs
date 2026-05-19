@@ -6,10 +6,16 @@ namespace GuGuTalk.Core.Providers;
 public sealed class ProviderFactory
 {
     private readonly AppSettings _settings;
+    private ISpeechProvider? _localProvider;
 
     public ProviderFactory(AppSettings settings)
     {
         _settings = settings;
+    }
+
+    public void RegisterLocalProvider(ISpeechProvider provider)
+    {
+        _localProvider = provider;
     }
 
     public List<ProviderSelection> ResolveProviders()
@@ -19,7 +25,8 @@ public sealed class ProviderFactory
         switch (_settings.PreferredMode)
         {
             case RecognitionMode.Local:
-                // Local provider added by app layer (GuGuTalk.LocalAsr)
+                if (_localProvider is not null)
+                    selections.Add(new ProviderSelection(RecognitionMode.Local, _localProvider));
                 break;
             case RecognitionMode.Doubao:
                 if (_settings.DoubaoCredentials.IsConfigured)

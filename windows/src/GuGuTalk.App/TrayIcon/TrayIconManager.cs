@@ -28,8 +28,19 @@ public sealed class TrayIconManager : IDisposable
 
     public void Initialize()
     {
+        System.Drawing.Icon? icon = null;
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath))
+                icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+        }
+        catch { /* fall back to default */ }
+        icon ??= System.Drawing.SystemIcons.Application;
+
         _trayIcon = new TaskbarIcon
         {
+            Icon = icon,
             ToolTipText = "GuGuTalk - 语音输入",
             MenuActivation = PopupActivationMode.RightClick
         };

@@ -50,6 +50,9 @@ public partial class SettingsWindow : Window
 
     private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // SelectionChanged fires during XAML EndInit, before constructor completes
+        // and named elements are wired up. Skip until everything is ready.
+        if (!IsInitialized || PageTitle is null) return;
         if (NavList.SelectedIndex >= 0)
             ShowPage(NavList.SelectedIndex);
     }

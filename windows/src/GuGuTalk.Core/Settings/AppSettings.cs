@@ -15,7 +15,7 @@ public sealed partial class AppSettings : ObservableObject
     private static readonly string SettingsPath = Path.Combine(SettingsDir, "settings.json");
 
     // Recognition
-    [ObservableProperty] private RecognitionMode _preferredMode = RecognitionMode.Doubao;
+    [ObservableProperty] private RecognitionMode _preferredMode = RecognitionMode.Local;
 
     // Hotkeys
     [ObservableProperty] private HotkeyConfiguration _holdToTalkHotkey = HotkeyConfiguration.DefaultHold;

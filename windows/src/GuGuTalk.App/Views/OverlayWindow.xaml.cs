@@ -14,7 +14,10 @@ public partial class OverlayWindow : Window
 
         _orchestrator.PropertyChanged += (_, e) =>
         {
-            Dispatcher.Invoke(() => UpdateUI(e.PropertyName));
+            // BeginInvoke (vs Invoke) avoids potential deadlocks if multiple
+            // property changes fire from a worker thread while the UI thread
+            // is busy running another handler.
+            Dispatcher.BeginInvoke(() => UpdateUI(e.PropertyName));
         };
 
         PositionBottomRight();

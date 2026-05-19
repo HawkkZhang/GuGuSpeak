@@ -6,6 +6,7 @@ using GuGuTalk.Core.Models;
 using GuGuTalk.Core.Providers;
 using GuGuTalk.Core.Services;
 using GuGuTalk.Core.Settings;
+using GuGuTalk.LocalAsr;
 using Serilog;
 
 namespace GuGuTalk.App;
@@ -32,8 +33,25 @@ public partial class App : Application
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "GuGuTalk", "logs", "gugutalk-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 7)
+                retainedFileCountLimit: 7,
+                flushToDiskInterval: TimeSpan.FromSeconds(1))
             .CreateLogger();
+
+        AppDomain.CurrentDomain.UnhandledException += (_, ev) =>
+        {
+            Log.Fatal(ev.ExceptionObject as Exception, "Unhandled domain exception (terminating={Term})", ev.IsTerminating);
+            Log.CloseAndFlush();
+        };
+        TaskScheduler.UnobservedTaskException += (_, ev) =>
+        {
+            Log.Error(ev.Exception, "Unobserved task exception");
+            ev.SetObserved();
+        };
+        DispatcherUnhandledException += (_, ev) =>
+        {
+            Log.Error(ev.Exception, "Unhandled dispatcher exception");
+            ev.Handled = true;
+        };
 
         Log.Information("GuGuTalk starting");
 
@@ -44,6 +62,9 @@ public partial class App : Application
         var hotwordStore = new HotwordStore();
         var llmClient = new LLMClient();
         var providerFactory = new ProviderFactory(_settings);
+        var localProvider = new SherpaOnnxProvider();
+        localProvider.Prewarm();
+        providerFactory.RegisterLocalProvider(localProvider);
         var textInsertion = new TextInsertionService();
         var postProcessor = new SmartPostProcessor(_settings, hotwordStore, llmClient);
 

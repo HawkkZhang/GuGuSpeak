@@ -5,6 +5,8 @@
     <RootNamespace>GuGuTalk.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <BundledModelsDir>$(MSBuildThisFileDirectory)..\GuGuTalk.LocalAsr\bundled-models</BundledModelsDir>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
   <ItemGroup Condition="Exists('Assets\app-icon.ico')">
     <Content Include="Assets\app-icon.ico">
