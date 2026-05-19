@@ -256,10 +256,18 @@ public sealed partial class RecognitionOrchestrator : ObservableObject
     {
         _ = Task.Run(async () =>
         {
-            await foreach (var evt in provider.Events.ReadAllAsync())
+            try
             {
-                if (_sessionGeneration != generation) return;
-                HandleEvent(evt);
+                await foreach (var evt in provider.Events.ReadAllAsync())
+                {
+                    if (_sessionGeneration != generation) return;
+                    HandleEvent(evt);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Provider event loop crashed");
             }
         });
     }
@@ -428,11 +436,19 @@ public sealed partial class RecognitionOrchestrator : ObservableObject
 
         _ = Task.Run(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(delaySeconds), token);
-            if (!token.IsCancellationRequested)
+            try
             {
-                IsPreviewVisible = false;
-                ResetPreviewState();
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), token);
+                if (!token.IsCancellationRequested)
+                {
+                    IsPreviewVisible = false;
+                    ResetPreviewState();
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "ScheduleDismiss task crashed");
             }
         }, token);
     }
