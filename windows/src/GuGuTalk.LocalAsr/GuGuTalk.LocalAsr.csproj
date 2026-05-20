@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>GuGuTalk.LocalAsr</RootNamespace>
-    <ModelName>sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30</ModelName>
+    <ModelName>sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23</ModelName>
     <ModelArchive>$(ModelName).tar.bz2</ModelArchive>
     <ModelUrl>https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$(ModelArchive)</ModelUrl>
     <ModelCacheDir>$(MSBuildThisFileDirectory)..\..\.modelcache</ModelCacheDir>

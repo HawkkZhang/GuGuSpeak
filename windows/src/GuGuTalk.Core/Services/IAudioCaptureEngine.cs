@@ -7,4 +7,5 @@ public interface IAudioCaptureEngine
     void Prewarm();
     void StartCapture(Func<AudioChunk, Task> handler);
     void StopCapture();
+    string? CurrentDeviceName { get; }
 }

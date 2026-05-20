@@ -83,6 +83,16 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
                 _stream?.Dispose();
                 _stream = _recognizer.CreateStream();
 
+                // Streaming Zipformer's deepest encoder layer needs 128 frames
+                // (~1.28s) of left context before its outputs are reliable, so
+                // the first ~0.3s of real audio is processed with an empty
+                // context window and the leading syllables get dropped. Feed a
+                // half second of silence right after CreateStream so by the
+                // time the user's first phoneme arrives the encoder context is
+                // already warm.
+                int warmupSamples = (int)(config.SampleRate / 2);
+                _stream.AcceptWaveform((int)config.SampleRate, new float[warmupSamples]);
+
                 _revision = 0;
                 _lastText = "";
                 _hasTerminated = false;
@@ -126,16 +136,12 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
                 _revision++;
                 _channel.Writer.TryWrite(new TranscriptEvent.PartialTextUpdated(text, _revision));
             }
-
-            if (_recognizer.IsEndpoint(_stream))
-            {
-                string endpointText = _recognizer.GetResult(_stream).Text.Trim();
-                if (!string.IsNullOrEmpty(endpointText))
-                {
-                    _lastText = endpointText;
-                }
-                _recognizer.Reset(_stream);
-            }
+            // Endpoint detection is intentionally disabled for hold-to-talk:
+            // the user signals end-of-utterance by releasing the hotkey, not by
+            // pausing. Calling Reset() mid-utterance was clobbering the decoded
+            // partial — when the trailing-silence rule fired between syllables
+            // the buffered text was thrown away and the final result came back
+            // empty. We let the recognizer keep state until FinishAudioAsync.
         }
 
         return Task.CompletedTask;
@@ -153,9 +159,9 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
         {
             if (_recognizer is null || _stream is null) return Task.CompletedTask;
 
-            // Feed tail silence to trigger endpoint detection
-            float[] silence = new float[16000]; // 1 second of silence
-            _stream.AcceptWaveform(16000, silence);
+            // Signal end of input, then decode remaining frames in the buffer.
+            // Do NOT feed silence before InputFinished() - it may interfere with
+            // decoding the actual speech audio that's already in the buffer.
             _stream.InputFinished();
 
             while (_recognizer.IsReady(_stream))
@@ -250,10 +256,10 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
         {
             ModelConfig = modelConfig,
             DecodingMethod = "greedy_search",
-            EnableEndpoint = 1,
-            Rule1MinTrailingSilence = 2.4f,
-            Rule2MinTrailingSilence = 1.2f,
-            Rule3MinUtteranceLength = 20.0f
+            // Endpointing is disabled: hold-to-talk relies on the user releasing
+            // the hotkey, and Reset() mid-utterance (which the endpoint flow
+            // wants) drops the partial text the model has already produced.
+            EnableEndpoint = 0
         };
         recognizerConfig.FeatConfig.SampleRate = (int)config.SampleRate;
         recognizerConfig.FeatConfig.FeatureDim = 80;

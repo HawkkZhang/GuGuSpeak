@@ -15,12 +15,33 @@ public sealed class AudioCaptureEngine : IAudioCaptureEngine, IDisposable
     // sherpa-onnx expects 16 kHz mono int16 PCM.
     private const int TargetSampleRate = 16000;
 
-    // No software gain — 6x boost was clipping audio into robot-speech distortion.
-    // If the mic level is too low, the user should raise mic gain in Windows.
-    private const float GainMultiplier = 1.0f;
+    // Adaptive gain (soft AGC). Some Windows mic configurations — notably
+    // built-in arrays without driver-side AGC, like 麦克风阵列 (英特尔® 智音技术) —
+    // hand WASAPI a raw stream that peaks around 0.04 (~4% of full scale)
+    // even at normal speaking volume. Apps that go through SAPI / Windows
+    // Speech get an AGC-processed feed and don't notice; we read the raw
+    // shared-mode stream and have to do the gain ourselves. A static
+    // multiplier doesn't work — 6x clipped a normal mic into "robot voice"
+    // last quarter — so we track the recent peak and adjust dynamically.
+    private const float AgcTargetPeak = 0.5f;
+    private const float AgcMinGain = 1.0f;
+    private const float AgcMaxGain = 30.0f;
+    // How fast gain can change between chunks. Cap step keeps voice from
+    // pumping when a loud syllable hits a previously quiet window.
+    private const float AgcMaxStepUp = 1.15f;
+    private const float AgcMaxStepDown = 0.85f;
+    // How long the rolling peak window is. Long enough to span normal
+    // pauses between words; short enough to react when the user gets
+    // closer to the mic.
+    private const int AgcWindowMillis = 1500;
+    private float _agcGain = 1.0f;
+    private readonly Queue<(DateTime At, float Peak)> _agcPeakHistory = new();
 
     private WasapiCapture? _capture;
     private WaveFormat? _captureFormat;
+    private string? _currentDeviceName;
+
+    public string? CurrentDeviceName => _currentDeviceName;
 
     // Stateful resampling chain: BufferedWaveProvider <- IEEE float source
     // -> ToSampleProvider -> StereoToMono -> WdlResampler -> 16 kHz mono float.
@@ -65,6 +86,7 @@ public sealed class AudioCaptureEngine : IAudioCaptureEngine, IDisposable
 
         using var enumerator = new MMDeviceEnumerator();
         var device = PickCaptureDevice(enumerator);
+        _currentDeviceName = device.FriendlyName;
 
         _capture = new WasapiCapture(device, true, 20);
         _captureFormat = _capture.WaveFormat;
@@ -89,6 +111,9 @@ public sealed class AudioCaptureEngine : IAudioCaptureEngine, IDisposable
         }
         _outputProvider = sample;
 
+        _agcGain = AgcMinGain;
+        _agcPeakHistory.Clear();
+
         _capture.DataAvailable += OnDataAvailable;
         _capture.RecordingStopped += OnRecordingStopped;
         _capture.StartRecording();
@@ -111,6 +136,7 @@ public sealed class AudioCaptureEngine : IAudioCaptureEngine, IDisposable
 
         _sourceBuffer = null;
         _outputProvider = null;
+        _currentDeviceName = null;
 
         _chunkChannel?.Writer.TryComplete();
         try { _dispatcherTask?.Wait(TimeSpan.FromSeconds(2)); } catch { /* ignore */ }
@@ -159,26 +185,73 @@ public sealed class AudioCaptureEngine : IAudioCaptureEngine, IDisposable
             double sumSq = 0;
             for (int i = 0; i < read; i++)
             {
-                float f = floats[i] * GainMultiplier;
+                float f = floats[i];
                 float abs = f < 0 ? -f : f;
                 if (abs > maxAbs) maxAbs = abs;
                 sumSq += f * f;
+            }
 
-                // Clamp + scale to int16
-                if (f > 1f) f = 1f; else if (f < -1f) f = -1f;
+            // pre-AGC RMS — used by silent-mic detection upstream and as the
+            // displayed audio level. AGC must not hide a dead microphone.
+            float preAgcRms = (float)Math.Sqrt(sumSq / read);
+
+            float gain = ComputeAgcGain(maxAbs);
+
+            for (int i = 0; i < read; i++)
+            {
+                float f = floats[i] * gain;
+                // soft tanh-style limiter — saturates instead of hard-clipping
+                // so loud syllables stay intelligible rather than turning to
+                // square-wave crunch when the AGC is still ramping down.
+                if (f > 1f || f < -1f)
+                    f = (float)Math.Tanh(f);
+
                 short s = (short)(f * 32767f);
                 pcm16[i * 2] = (byte)(s & 0xff);
                 pcm16[i * 2 + 1] = (byte)((s >> 8) & 0xff);
             }
 
-            float level = (float)Math.Sqrt(sumSq / read);
-            var chunk = new AudioChunk(pcm16, TargetSampleRate, 1, level);
+            var chunk = new AudioChunk(pcm16, TargetSampleRate, 1, preAgcRms);
             _chunkChannel.Writer.TryWrite(chunk);
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "OnDataAvailable failed");
         }
+    }
+
+    private float ComputeAgcGain(float chunkPeak)
+    {
+        var now = DateTime.UtcNow;
+        _agcPeakHistory.Enqueue((now, chunkPeak));
+        var cutoff = now.AddMilliseconds(-AgcWindowMillis);
+        while (_agcPeakHistory.Count > 0 && _agcPeakHistory.Peek().At < cutoff)
+            _agcPeakHistory.Dequeue();
+
+        float windowPeak = 0f;
+        foreach (var (_, p) in _agcPeakHistory)
+            if (p > windowPeak) windowPeak = p;
+
+        // Avoid amplifying pure silence to AgcMaxGain × tiny number = noise floor.
+        // 0.002 ≈ -54dBFS — anything quieter is treated as silence and held at unity.
+        // Lowered from 0.01 because some built-in mic arrays (Intel Smart Sound)
+        // produce legitimate speech at 0.004 peak even at close range.
+        if (windowPeak < 0.002f)
+        {
+            _agcGain = AgcMinGain;
+            return _agcGain;
+        }
+
+        float target = AgcTargetPeak / windowPeak;
+        if (target < AgcMinGain) target = AgcMinGain;
+        if (target > AgcMaxGain) target = AgcMaxGain;
+
+        // Smooth transitions — never let gain change by more than the per-chunk cap.
+        float maxStep = target > _agcGain ? _agcGain * AgcMaxStepUp : _agcGain * AgcMaxStepDown;
+        if (target > _agcGain && target > maxStep) target = maxStep;
+        if (target < _agcGain && target < maxStep) target = maxStep;
+        _agcGain = target;
+        return _agcGain;
     }
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
