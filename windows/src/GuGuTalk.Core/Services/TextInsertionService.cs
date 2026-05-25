@@ -15,10 +15,25 @@ public sealed class TextInsertionService : ITextInsertionService
         "WeChat", "WeChatAppEx", "Weixin"
     };
 
-    public InsertionResult Insert(string text)
+    public InsertionResult Insert(string text, IntPtr targetHwnd = default)
     {
         if (string.IsNullOrEmpty(text))
             return new InsertionResult(InsertionMethod.Failed, null, false, "文本为空");
+
+        // If we captured the user's editor at hotkey-press time, force focus
+        // back there before pasting. The overlay window has WS_EX_NOACTIVATE
+        // but a few apps (and the post-processing delay) can still leave the
+        // foreground pointing somewhere else. Doing this once here is more
+        // reliable than relying on overlay style flags.
+        if (targetHwnd != IntPtr.Zero)
+        {
+            var (capTitle, capProc) = NativeMethods.GetWindowInfo(targetHwnd);
+            bool restored = NativeMethods.ForceForegroundWindow(targetHwnd);
+            Logger.Information("恢复目标窗口前台 hwnd={Hwnd:X} title={Title} proc={Proc} success={Ok}",
+                targetHwnd.ToInt64(), capTitle ?? "未知", capProc ?? "未知", restored);
+            // Give the OS a moment to actually apply the focus change.
+            Thread.Sleep(40);
+        }
 
         var (title, processName) = NativeMethods.GetForegroundWindowInfo();
         Logger.Information("开始插入文本，目标: {Title} ({Process})，长度: {Len}",
@@ -103,6 +118,9 @@ public sealed class TextInsertionService : ITextInsertionService
     {
         try
         {
+            var (fgTitle, fgProc) = NativeMethods.GetForegroundWindowInfo();
+            Logger.Information("剪贴板粘贴前台窗口: {Title} ({Proc})", fgTitle ?? "未知", fgProc ?? "未知");
+
             string? saved = NativeMethods.GetClipboardText();
 
             if (!NativeMethods.SetClipboardText(text)) return false;

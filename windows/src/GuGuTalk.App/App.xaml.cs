@@ -72,14 +72,26 @@ public partial class App : Application
         _orchestrator = new RecognitionOrchestrator(
             _settings, _audioEngine, providerFactory, textInsertion, postProcessor);
 
-        _hotkeyManager.OnHoldPress += () => _ = _orchestrator.BeginCaptureAsync();
+        _hotkeyManager.OnHoldPress += () =>
+        {
+            // Snapshot the foreground window now -- we're inside the keyboard
+            // hook callback, so the user's editor still has focus. By the time
+            // post-processing finishes and we paste, focus may have wandered
+            // (overlay show, hook re-entry, async delays). Restoring this HWND
+            // before paste is what actually makes the insertion land.
+            _orchestrator.CaptureTargetWindow();
+            _ = _orchestrator.BeginCaptureAsync();
+        };
         _hotkeyManager.OnHoldRelease += () => _ = _orchestrator.EndCaptureAsync();
         _hotkeyManager.OnTogglePress += () =>
         {
             if (_orchestrator.HasActiveWork)
                 _ = _orchestrator.EndCaptureAsync();
             else
+            {
+                _orchestrator.CaptureTargetWindow();
                 _ = _orchestrator.BeginCaptureAsync();
+            }
         };
 
         _keyboardHook = new KeyboardHook();

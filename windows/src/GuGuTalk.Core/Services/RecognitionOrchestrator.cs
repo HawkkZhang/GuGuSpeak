@@ -41,6 +41,7 @@ public sealed partial class RecognitionOrchestrator : ObservableObject
     private bool _isSessionActive;
     private bool _isFinishRequested;
     private int _sessionGeneration;
+    private IntPtr _capturedTargetHwnd;
 
     public RecognitionOrchestrator(
         AppSettings settings,
@@ -60,6 +61,23 @@ public sealed partial class RecognitionOrchestrator : ObservableObject
         _isStartingSession || _isSessionActive || IsSessionRunning ||
         _isFinishRequested || _startingProvider is not null ||
         _activeProvider is not null || IsPostProcessing;
+
+    /// <summary>
+    /// Records the current foreground HWND so the insertion path can restore
+    /// focus to it before pasting. The overlay's WS_EX_NOACTIVATE is supposed
+    /// to prevent focus theft but in practice the post-processing delay leaves
+    /// enough room for focus to wander, so we do it explicitly. Call this from
+    /// inside the keyboard-hook handler BEFORE BeginCaptureAsync, otherwise
+    /// the overlay's first Show() may have already run.
+    /// </summary>
+    public void CaptureTargetWindow()
+    {
+        var hwnd = Interop.NativeMethods.GetForegroundWindow();
+        _capturedTargetHwnd = hwnd;
+        var (title, proc) = Interop.NativeMethods.GetWindowInfo(hwnd);
+        Logger.Information("捕获目标窗口 hwnd={Hwnd:X} title={Title} proc={Proc}",
+            hwnd.ToInt64(), title ?? "未知", proc ?? "未知");
+    }
 
     public async Task BeginCaptureAsync()
     {
@@ -358,7 +376,7 @@ public sealed partial class RecognitionOrchestrator : ObservableObject
     private void InsertFinalText()
     {
         PreviewMessage = "正在插入到当前输入位置";
-        var result = _textInsertionService.Insert(_finalTranscript);
+        var result = _textInsertionService.Insert(_finalTranscript, _capturedTargetHwnd);
         LastInsertionResult = result;
         if (result.Succeeded)
         {

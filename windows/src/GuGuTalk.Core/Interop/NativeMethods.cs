@@ -16,6 +16,40 @@ internal static partial class NativeMethods
     internal static partial uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetForegroundWindow(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial uint GetCurrentThreadId();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindow(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindowVisible(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool BringWindowToTop(IntPtr hWnd);
+
+    internal const int SW_RESTORE = 9;
+    internal const int SW_SHOW = 5;
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsIconic(IntPtr hWnd);
+
+    [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int vKey);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -96,6 +130,11 @@ internal static partial class NativeMethods
     internal static (string? Title, string? ProcessName) GetForegroundWindowInfo()
     {
         var hWnd = GetForegroundWindow();
+        return GetWindowInfo(hWnd);
+    }
+
+    internal static (string? Title, string? ProcessName) GetWindowInfo(IntPtr hWnd)
+    {
         if (hWnd == IntPtr.Zero) return (null, null);
 
         var sb = new StringBuilder(512);
@@ -112,6 +151,51 @@ internal static partial class NativeMethods
         catch { }
 
         return (title, processName);
+    }
+
+    /// <summary>
+    /// SetForegroundWindow has restrictions in modern Windows -- the standard
+    /// workaround is AttachThreadInput between the calling thread and the
+    /// target window's thread for the duration of the call. Returns true if
+    /// the target HWND ended up foreground.
+    /// </summary>
+    internal static bool ForceForegroundWindow(IntPtr targetHwnd)
+    {
+        if (targetHwnd == IntPtr.Zero || !IsWindow(targetHwnd)) return false;
+        if (GetForegroundWindow() == targetHwnd) return true;
+
+        if (IsIconic(targetHwnd))
+        {
+            ShowWindow(targetHwnd, SW_RESTORE);
+        }
+
+        uint targetThread = GetWindowThreadProcessId(targetHwnd, out _);
+        uint currentThread = GetCurrentThreadId();
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+
+        bool attachedTarget = false;
+        bool attachedForeground = false;
+        try
+        {
+            if (targetThread != currentThread)
+            {
+                attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+            }
+            if (foregroundThread != 0 && foregroundThread != currentThread && foregroundThread != targetThread)
+            {
+                attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+            }
+
+            BringWindowToTop(targetHwnd);
+            SetForegroundWindow(targetHwnd);
+        }
+        finally
+        {
+            if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+            if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+        }
+
+        return GetForegroundWindow() == targetHwnd;
     }
 
     internal static bool SendUnicodeText(string text)
