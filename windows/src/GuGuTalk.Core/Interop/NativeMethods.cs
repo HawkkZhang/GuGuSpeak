@@ -52,6 +52,20 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int vKey);
 
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+    internal static partial uint MapVirtualKey(uint uCode, uint uMapType);
+
+    internal const uint MAPVK_VK_TO_VSC = 0;
+
+    [LibraryImport("user32.dll")]
+    internal static partial IntPtr GetFocus();
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    internal static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    internal const uint WM_PASTE = 0x0302;
+    internal const uint EM_REPLACESEL = 0x00C2;
+
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -111,10 +125,19 @@ internal static partial class NativeMethods
         public INPUTUNION u;
     }
 
+    // Win32 INPUT.union must be sized to its LARGEST member (MOUSEINPUT) — 32
+    // bytes on x64 — so the whole INPUT struct is 40 bytes. SendInput's cbSize
+    // is checked exactly against this; if we declared the union with only
+    // KEYBDINPUT, Marshal.SizeOf<INPUT>() returns 32 and SendInput silently
+    // refuses to inject anything (ERROR_INVALID_PARAMETER). Declare all three
+    // members at offset 0 so KEYBDINPUT keeps its current offsets/usage but
+    // the union is padded out to MOUSEINPUT's size.
     [StructLayout(LayoutKind.Explicit)]
     internal struct INPUTUNION
     {
+        [FieldOffset(0)] public MOUSEINPUT mi;
         [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public HARDWAREINPUT hi;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -125,6 +148,25 @@ internal static partial class NativeMethods
         public uint dwFlags;
         public uint time;
         public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct HARDWAREINPUT
+    {
+        public uint uMsg;
+        public ushort wParamL;
+        public ushort wParamH;
     }
 
     internal static (string? Title, string? ProcessName) GetForegroundWindowInfo()
@@ -224,12 +266,21 @@ internal static partial class NativeMethods
 
     internal static void SendCtrlV()
     {
+        // Chromium/Electron apps (Chrome, Cursor, VS Code, 讯飞/微信 newer
+        // clients) rebuild key events from the SCAN CODE, not the virtual
+        // key. A synthetic Ctrl+V carrying only wVk is silently ignored by
+        // them. We send both wVk and the mapped wScan with KEYEVENTF_SCANCODE
+        // so the keystroke survives Chromium's input pipeline as well as
+        // classic Win32 edit controls.
+        ushort scanCtrl = (ushort)MapVirtualKey(VK_CONTROL, MAPVK_VK_TO_VSC);
+        ushort scanV = (ushort)MapVirtualKey(VK_V, MAPVK_VK_TO_VSC);
+
         var inputs = new INPUT[]
         {
-            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_CONTROL } } },
-            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_V } } },
-            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_V, dwFlags = KEYEVENTF_KEYUP } } },
-            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_CONTROL, dwFlags = KEYEVENTF_KEYUP } } }
+            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_CONTROL, wScan = scanCtrl, dwFlags = KEYEVENTF_SCANCODE } } },
+            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_V, wScan = scanV, dwFlags = KEYEVENTF_SCANCODE } } },
+            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_V, wScan = scanV, dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP } } },
+            new() { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = VK_CONTROL, wScan = scanCtrl, dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP } } }
         };
         SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
     }

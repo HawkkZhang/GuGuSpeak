@@ -2,7 +2,7 @@ namespace GuGuTalk.LocalAsr;
 
 public static class ModelManager
 {
-    public const string DefaultModelName = "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23";
+    public const string DefaultModelName = "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30";
 
     // Path next to the executable (used when WiX bundles models with the install)
     private static string BundledModelsRoot => Path.Combine(
@@ -53,6 +53,7 @@ public static class ModelManager
     /// Looks for tokens.txt directly inside `root`, or one level deep in named subdirs
     /// (e.g. models/sherpa-onnx-streaming-zipformer-zh-14M-.../tokens.txt).
     /// Returns the directory that contains tokens.txt, or null if not found.
+    /// If multiple subdirs exist, prioritizes directories with "2025" or "int8-2025" in the name.
     /// </summary>
     private static string? ResolveModelDir(string root)
     {
@@ -61,14 +62,24 @@ public static class ModelManager
         // Direct hit: tokens.txt at root
         if (File.Exists(Path.Combine(root, "tokens.txt"))) return root;
 
-        // One level deep: pick the first subdir with tokens.txt
+        // One level deep: collect all subdirs with tokens.txt
         try
         {
+            var candidates = new List<string>();
             foreach (var sub in Directory.EnumerateDirectories(root))
             {
                 if (File.Exists(Path.Combine(sub, "tokens.txt")))
-                    return sub;
+                    candidates.Add(sub);
             }
+
+            if (candidates.Count == 0) return null;
+
+            // Prioritize directories with "2025" or "int8-2025" in the name
+            var preferred = candidates.FirstOrDefault(c =>
+                Path.GetFileName(c).Contains("2025", StringComparison.OrdinalIgnoreCase) ||
+                Path.GetFileName(c).Contains("int8-2025", StringComparison.OrdinalIgnoreCase));
+
+            return preferred ?? candidates[0];
         }
         catch { }
 
