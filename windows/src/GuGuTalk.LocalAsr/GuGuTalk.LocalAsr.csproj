@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>GuGuTalk.LocalAsr</RootNamespace>
-    <ModelName>sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23</ModelName>
+    <ModelName>sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30</ModelName>
     <ModelArchive>$(ModelName).tar.bz2</ModelArchive>
     <ModelUrl>https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$(ModelArchive)</ModelUrl>
     <ModelCacheDir>$(MSBuildThisFileDirectory)..\..\.modelcache</ModelCacheDir>
@@ -25,19 +25,7 @@
   <Target Name="DownloadAsrModel"
           BeforeTargets="BeforeBuild"
           Condition="!Exists('$(ModelOutputDir)\tokens.txt')">
-    <Message Importance="high" Text="==> Downloading ASR model: $(ModelName)" />
-    <MakeDir Directories="$(ModelCacheDir)" />
-    <MakeDir Directories="$(MSBuildThisFileDirectory)bundled-models" />
-
-    <DownloadFile
-      SourceUrl="$(ModelUrl)"
-      DestinationFolder="$(ModelCacheDir)"
-      DestinationFileName="$(ModelArchive)"
-      Condition="!Exists('$(ModelCacheDir)\$(ModelArchive)')"
-      Retries="3" />
-
-    <Message Importance="high" Text="==> Extracting model to bundled-models\" />
-    <Exec Command="tar -xjf &quot;$(ModelCacheDir)\$(ModelArchive)&quot; -C &quot;$(MSBuildThisFileDirectory)bundled-models&quot;"
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)download-model.ps1&quot; -ModelName &quot;$(ModelName)&quot; -ModelUrl &quot;$(ModelUrl)&quot; -CacheDir &quot;$(ModelCacheDir)&quot; -OutDir &quot;$(MSBuildThisFileDirectory)bundled-models&quot;"
           WorkingDirectory="$(MSBuildThisFileDirectory)" />
 
     <Error Text="Model extraction failed: tokens.txt not found at $(ModelOutputDir)"

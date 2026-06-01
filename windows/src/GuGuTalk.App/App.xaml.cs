@@ -2,9 +2,11 @@ using System.Windows;
 using GuGuTalk.App.Interop;
 using GuGuTalk.App.TrayIcon;
 using GuGuTalk.App.Views;
+using GuGuTalk.Core.Models;
 using GuGuTalk.Core.Providers;
 using GuGuTalk.Core.Services;
 using GuGuTalk.Core.Settings;
+using GuGuTalk.LocalAsr;
 using Serilog;
 
 namespace GuGuTalk.App;
@@ -31,8 +33,25 @@ public partial class App : Application
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "GuGuTalk", "logs", "gugutalk-.log"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 7)
+                retainedFileCountLimit: 7,
+                flushToDiskInterval: TimeSpan.FromSeconds(1))
             .CreateLogger();
+
+        AppDomain.CurrentDomain.UnhandledException += (_, ev) =>
+        {
+            Log.Fatal(ev.ExceptionObject as Exception, "Unhandled domain exception (terminating={Term})", ev.IsTerminating);
+            Log.CloseAndFlush();
+        };
+        TaskScheduler.UnobservedTaskException += (_, ev) =>
+        {
+            Log.Error(ev.Exception, "Unobserved task exception");
+            ev.SetObserved();
+        };
+        DispatcherUnhandledException += (_, ev) =>
+        {
+            Log.Error(ev.Exception, "Unhandled dispatcher exception");
+            ev.Handled = true;
+        };
 
         Log.Information("GuGuTalk starting");
 
@@ -43,6 +62,9 @@ public partial class App : Application
         var hotwordStore = new HotwordStore();
         var llmClient = new LLMClient();
         var providerFactory = new ProviderFactory(_settings);
+        var localProvider = new SherpaOnnxProvider();
+        localProvider.Prewarm();
+        providerFactory.RegisterLocalProvider(localProvider);
         var textInsertion = new TextInsertionService();
         var postProcessor = new SmartPostProcessor(_settings, hotwordStore, llmClient);
 
@@ -50,14 +72,26 @@ public partial class App : Application
         _orchestrator = new RecognitionOrchestrator(
             _settings, _audioEngine, providerFactory, textInsertion, postProcessor);
 
-        _hotkeyManager.OnHoldPress += () => _ = _orchestrator.BeginCaptureAsync();
+        _hotkeyManager.OnHoldPress += () =>
+        {
+            // Snapshot the foreground window now -- we're inside the keyboard
+            // hook callback, so the user's editor still has focus. By the time
+            // post-processing finishes and we paste, focus may have wandered
+            // (overlay show, hook re-entry, async delays). Restoring this HWND
+            // before paste is what actually makes the insertion land.
+            _orchestrator.CaptureTargetWindow();
+            _ = _orchestrator.BeginCaptureAsync();
+        };
         _hotkeyManager.OnHoldRelease += () => _ = _orchestrator.EndCaptureAsync();
         _hotkeyManager.OnTogglePress += () =>
         {
             if (_orchestrator.HasActiveWork)
                 _ = _orchestrator.EndCaptureAsync();
             else
+            {
+                _orchestrator.CaptureTargetWindow();
                 _ = _orchestrator.BeginCaptureAsync();
+            }
         };
 
         _keyboardHook = new KeyboardHook();

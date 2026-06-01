@@ -10,6 +10,7 @@ internal sealed class KeyboardHook : IDisposable
     private const int WM_KEYUP = 0x0101;
     private const int WM_SYSKEYDOWN = 0x0104;
     private const int WM_SYSKEYUP = 0x0105;
+    private const uint LLKHF_INJECTED = 0x10;
 
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -57,11 +58,22 @@ internal sealed class KeyboardHook : IDisposable
     {
         if (nCode >= 0)
         {
-            int vkCode = Marshal.ReadInt32(lParam);
-            int msg = (int)wParam;
-            bool isDown = msg is WM_KEYDOWN or WM_SYSKEYDOWN;
-            var modifiers = GetCurrentModifiers();
-            KeyEvent?.Invoke(vkCode, isDown, modifiers);
+            // KBDLLHOOKSTRUCT layout: vkCode(0), scanCode(4), flags(8), time(12), dwExtraInfo(16).
+            // Skip events we (or any other app) injected via SendInput. Running the
+            // full hotkey handler synchronously on an injected event blocks the LL
+            // hook long enough that Windows silently DROPS our own SendInput paste
+            // (manifesting as sent != requested). Injected keystrokes must pass
+            // straight through to the next hook.
+            uint flags = (uint)Marshal.ReadInt32(lParam, 8);
+            bool injected = (flags & LLKHF_INJECTED) != 0;
+            if (!injected)
+            {
+                int vkCode = Marshal.ReadInt32(lParam);
+                int msg = (int)wParam;
+                bool isDown = msg is WM_KEYDOWN or WM_SYSKEYDOWN;
+                var modifiers = GetCurrentModifiers();
+                KeyEvent?.Invoke(vkCode, isDown, modifiers);
+            }
         }
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
     }

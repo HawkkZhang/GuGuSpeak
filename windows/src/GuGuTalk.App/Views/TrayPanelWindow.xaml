@@ -1,0 +1,127 @@
+<Window x:Class="GuGuTalk.App.Views.TrayPanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="GuGuTalk"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Width="306"
+        SizeToContent="Height"
+        WindowStartupLocation="Manual"
+        Topmost="True"
+        Deactivated="OnDeactivated">
+
+    <Border CornerRadius="14"
+            Background="{StaticResource SurfacePanelBrush}"
+            BorderBrush="{StaticResource BorderSubtleBrush}"
+            BorderThickness="1"
+            Margin="8"
+            Padding="0">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="22" Opacity="0.18" ShadowDepth="6" />
+        </Border.Effect>
+
+        <StackPanel Margin="16,14,16,14">
+
+            <!-- Brand header -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                <Border Width="30" Height="30" CornerRadius="8"
+                        Background="White"
+                        BorderBrush="{StaticResource BorderSubtleBrush}"
+                        BorderThickness="1">
+                    <Image Source="/Assets/app-icon.png" Stretch="UniformToFill" />
+                </Border>
+                <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="GuGuTalk"
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" />
+                    <TextBlock Text="轻量语音输入"
+                               FontSize="11"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Status card -->
+            <Border CornerRadius="10"
+                    Background="{StaticResource SurfacePaperBrush}"
+                    Padding="12,10"
+                    Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Ellipse x:Name="StatusDot"
+                             Grid.Column="0"
+                             Width="8" Height="8"
+                             Margin="0,0,10,0"
+                             VerticalAlignment="Center"
+                             Fill="{StaticResource ReadyGreenBrush}" />
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock x:Name="StatusText"
+                                   Text="就绪"
+                                   FontSize="12.5" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                        <TextBlock x:Name="HotkeyText"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <Border Grid.Column="2"
+                            CornerRadius="6"
+                            Background="{StaticResource AquaSoftBrush}"
+                            Padding="8,3"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="ModeBadge"
+                                   FontSize="10.5" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DeepAquaBrush}" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Mode selector -->
+            <TextBlock Text="识别引擎"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="0,0,0,6" />
+            <Border CornerRadius="9"
+                    Background="{StaticResource SurfacePaperBrush}"
+                    Padding="3"
+                    Margin="0,0,0,14">
+                <UniformGrid x:Name="ModeChoiceBar"
+                             Rows="1" Columns="3" />
+            </Border>
+
+            <!-- Action buttons -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="OpenSettingsButton"
+                        Grid.Column="0"
+                        Height="34"
+                        Style="{StaticResource TrayActionButton}"
+                        Content="打开设置"
+                        Click="OnOpenSettingsClicked" />
+
+                <Button x:Name="ExitButton"
+                        Grid.Column="2"
+                        Height="34"
+                        Style="{StaticResource TrayActionButtonDanger}"
+                        Content="退出"
+                        Click="OnExitClicked" />
+            </Grid>
+
+        </StackPanel>
+    </Border>
+</Window>

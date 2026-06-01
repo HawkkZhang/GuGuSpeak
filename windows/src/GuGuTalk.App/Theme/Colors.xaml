@@ -21,14 +21,29 @@
     <Color x:Key="SurfaceDarkColor">#0E1314</Color>
     <Color x:Key="SurfacePanelDarkColor">#1A2526</Color>
 
+    <!-- Overlay (top-center bubble) -->
+    <Color x:Key="OverlayActiveColor">#1FA3B5</Color>
+    <Color x:Key="OverlayActiveDarkColor">#0F4F58</Color>
+    <Color x:Key="OverlayTextColor">#F4FCFD</Color>
+    <Color x:Key="OverlayTextSubtleColor">#C7E9ED</Color>
+    <Color x:Key="OverlayDangerColor">#FF8A82</Color>
+
     <!-- Brushes -->
     <SolidColorBrush x:Key="IconAquaBrush" Color="{StaticResource IconAquaColor}" />
     <SolidColorBrush x:Key="DeepAquaBrush" Color="{StaticResource DeepAquaColor}" />
     <SolidColorBrush x:Key="AquaSoftBrush" Color="{StaticResource AquaSoftColor}" />
+    <SolidColorBrush x:Key="IconOrangeBrush" Color="{StaticResource IconOrangeColor}" />
+    <SolidColorBrush x:Key="ReadyGreenBrush" Color="{StaticResource ReadyGreenColor}" />
+    <SolidColorBrush x:Key="SignalAmberBrush" Color="{StaticResource SignalAmberColor}" />
+    <SolidColorBrush x:Key="DangerRedBrush" Color="{StaticResource DangerRedColor}" />
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
     <SolidColorBrush x:Key="SurfacePaperBrush" Color="{StaticResource SurfacePaperColor}" />
     <SolidColorBrush x:Key="SurfacePanelBrush" Color="{StaticResource SurfacePanelColor}" />
     <SolidColorBrush x:Key="BorderSubtleBrush" Color="{StaticResource BorderSubtleColor}" />
+    <SolidColorBrush x:Key="OverlayActiveBrush" Color="{StaticResource OverlayActiveColor}" />
+    <SolidColorBrush x:Key="OverlayTextBrush" Color="{StaticResource OverlayTextColor}" />
+    <SolidColorBrush x:Key="OverlayTextSubtleBrush" Color="{StaticResource OverlayTextSubtleColor}" />
+    <SolidColorBrush x:Key="OverlayDangerBrush" Color="{StaticResource OverlayDangerColor}" />
 
 </ResourceDictionary>
