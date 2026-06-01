@@ -1,6 +1,244 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Base styles will be added in Phase 4 -->
+    <!-- Tray panel primary action button -->
+    <Style x:Key="TrayActionButton" TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource IconAquaBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            CornerRadius="9"
+                            Background="{TemplateBinding Background}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{StaticResource DeepAquaBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.85" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Tray panel secondary/danger button -->
+    <Style x:Key="TrayActionButtonDanger" TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource SurfacePaperBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            CornerRadius="9"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{StaticResource AquaSoftBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Choice-bar segment used by the tray panel mode selector -->
+    <Style x:Key="ChoiceBarSegment" TargetType="ToggleButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Bd"
+                            CornerRadius="7"
+                            Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{StaticResource IconAquaBrush}" />
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsChecked" Value="False" />
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{StaticResource AquaSoftBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource DeepAquaBrush}" />
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Settings sidebar nav item -->
+    <Style x:Key="SidebarNavItem" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="Margin" Value="0,2" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd"
+                            CornerRadius="8"
+                            Background="Transparent"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{StaticResource IconAquaBrush}" />
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsSelected" Value="False" />
+                                <Condition Property="IsMouseOver" Value="True" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Bd" Property="Background" Value="#FFFFFFFF" />
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Settings page section card -->
+    <Style x:Key="SettingsCard" TargetType="Border">
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="20,18" />
+        <Setter Property="Margin" Value="0,0,0,14" />
+    </Style>
+
+    <Style x:Key="SectionLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,4" />
+    </Style>
+
+    <!-- Form inputs -->
+    <Style x:Key="SettingsTextBox" TargetType="TextBox">
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Margin" Value="0,4" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border CornerRadius="8"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Padding="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SettingsPasswordBox" TargetType="PasswordBox">
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Margin" Value="0,4" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border CornerRadius="8"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Padding="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Hotkey badge button -->
+    <Style x:Key="HotkeyBadgeButton" TargetType="Button">
+        <Setter Property="Padding" Value="14,7" />
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource DeepAquaBrush}" />
+        <Setter Property="Background" Value="{StaticResource AquaSoftBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd"
+                            CornerRadius="7"
+                            Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background"
+                                    Value="{StaticResource IconAquaBrush}" />
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 
 </ResourceDictionary>

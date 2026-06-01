@@ -1,5 +1,8 @@
+using System.Media;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using GuGuTalk.Core.Models;
 using GuGuTalkModifiers = GuGuTalk.Core.Models.ModifierKeys;
 using WpfModifiers = System.Windows.Input.ModifierKeys;
@@ -9,6 +12,7 @@ namespace GuGuTalk.App.Views;
 public partial class HotkeyRecorderDialog : Window
 {
     public HotkeyConfiguration? Result { get; private set; }
+    private bool _hasNewCapture;
 
     public HotkeyRecorderDialog(string title, HotkeyConfiguration current)
     {
@@ -26,13 +30,6 @@ public partial class HotkeyRecorderDialog : Window
         e.Handled = true;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
 
-        // Ignore pure modifier presses
-        if (IsModifierKey(key))
-        {
-            UpdatePreview(GetModifiers(), null);
-            return;
-        }
-
         if (key == Key.Escape)
         {
             DialogResult = false;
@@ -40,10 +37,26 @@ public partial class HotkeyRecorderDialog : Window
             return;
         }
 
+        // Modifier-only press: just preview, no commit
+        if (IsModifierKey(key))
+        {
+            UpdatePreview(GetModifiers(), null);
+            return;
+        }
+
         var mods = GetModifiers();
+
+        // Reject bare main key without any modifier
+        if (mods == GuGuTalkModifiers.None)
+        {
+            ShakeAndBeep();
+            return;
+        }
+
         int vk = KeyInterop.VirtualKeyFromKey(key);
         string display = FormatHotkey(vk, mods);
         Result = new HotkeyConfiguration(vk, mods, display);
+        _hasNewCapture = true;
 
         UpdatePreview(mods, key);
         ConfirmButton.IsEnabled = true;
@@ -51,6 +64,11 @@ public partial class HotkeyRecorderDialog : Window
 
     private void Confirm_Click(object sender, RoutedEventArgs e)
     {
+        if (!_hasNewCapture)
+        {
+            ShakeAndBeep();
+            return;
+        }
         DialogResult = true;
         Close();
     }
@@ -70,6 +88,27 @@ public partial class HotkeyRecorderDialog : Window
         if (mods.HasFlag(GuGuTalkModifiers.Win)) parts.Add("Win");
         if (key.HasValue) parts.Add(KeyToDisplay(key.Value));
         PromptText.Text = parts.Count > 0 ? string.Join("+", parts) : "按下新的热键组合...";
+    }
+
+    /// <summary>
+    /// Tactile feedback when the captured combo is invalid: shake the prompt
+    /// 4 frames horizontally and ding the system beep, mirroring the Mac
+    /// hotkey recorder's behavior.
+    /// </summary>
+    private void ShakeAndBeep()
+    {
+        SystemSounds.Beep.Play();
+        var keyframes = new DoubleAnimationUsingKeyFrames();
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        double[] offsets = { -8, 7, -5, 3, 0 };
+        for (int i = 0; i < offsets.Length; i++)
+        {
+            keyframes.KeyFrames.Add(new EasingDoubleKeyFrame(
+                offsets[i],
+                KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80 * (i + 1))),
+                ease));
+        }
+        PromptShakeTransform.BeginAnimation(TranslateTransform.XProperty, keyframes);
     }
 
     private static GuGuTalkModifiers GetModifiers()

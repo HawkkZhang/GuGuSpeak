@@ -11,60 +11,109 @@
         ShowActivated="False"
         Focusable="False"
         ResizeMode="NoResize"
-        Width="320" Height="140"
+        Width="126" Height="40"
         WindowStartupLocation="Manual">
 
-    <Border CornerRadius="12"
-            Background="{StaticResource SurfacePanelBrush}"
-            BorderBrush="{StaticResource BorderSubtleBrush}"
-            BorderThickness="1"
-            Padding="16"
-            Margin="8">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="16" Opacity="0.12" ShadowDepth="4" />
-        </Border.Effect>
+    <Border x:Name="RootBorder"
+            CornerRadius="23"
+            Background="{StaticResource OverlayActiveBrush}"
+            ClipToBounds="True">
 
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+        <Grid x:Name="ContentRoot">
 
-            <!-- Title + Recording indicator -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                <Ellipse Width="8" Height="8" Margin="0,0,8,0"
-                         x:Name="RecordingDot"
-                         Fill="{StaticResource IconAquaBrush}" />
-                <TextBlock x:Name="TitleText"
-                           Text="正在聆听"
-                           FontSize="13" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}" />
+            <!-- State: Recording (no transcript yet) -->
+            <Grid x:Name="RecordingEmptyContent"
+                  Visibility="Collapsed">
+                <controls:WaveformMeter x:Name="WaveformEmpty"
+                                        BarBrush="{StaticResource OverlayTextBrush}"
+                                        BarCount="10"
+                                        Compact="True" />
+            </Grid>
+
+            <!-- State: Recording with transcript -->
+            <Grid x:Name="RecordingTranscriptContent"
+                  Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           x:Name="TranscriptText"
+                           Margin="20,12,8,12"
+                           FontSize="14.5"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource OverlayTextBrush}"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxHeight="80"
+                           TextTrimming="CharacterEllipsis">
+                    <TextBlock.Effect>
+                        <BlurEffect x:Name="TranscriptBlur" Radius="0" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <controls:WaveformMeter Grid.Column="1"
+                                        x:Name="WaveformInline"
+                                        Width="44" Height="32"
+                                        Margin="0,0,16,0"
+                                        Opacity="0.7"
+                                        BarBrush="{StaticResource OverlayTextBrush}"
+                                        BarCount="6"
+                                        Compact="True"
+                                        VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- State: Post-processing -->
+            <StackPanel x:Name="PostProcessingContent"
+                        Visibility="Collapsed"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                <Grid Width="14" Height="14"
+                      Margin="0,0,8,0"
+                      VerticalAlignment="Center">
+                    <Ellipse Stroke="{StaticResource OverlayTextSubtleBrush}"
+                             StrokeThickness="2"
+                             Opacity="0.4" />
+                    <Ellipse Stroke="{StaticResource OverlayTextBrush}"
+                             StrokeThickness="2"
+                             StrokeDashArray="2 6"
+                             RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.RenderTransform>
+                            <RotateTransform x:Name="SpinnerRotate" Angle="0" />
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                </Grid>
+                <TextBlock Text="处理中"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource OverlayTextBrush}"
+                           VerticalAlignment="Center" />
             </StackPanel>
 
-            <!-- Waveform -->
-            <controls:WaveformMeter Grid.Row="1"
-                                    x:Name="Waveform"
-                                    Height="20"
-                                    BarBrush="{StaticResource IconAquaBrush}"
-                                    Margin="0,0,0,8" />
-
-            <!-- Transcript -->
-            <TextBlock Grid.Row="2"
-                       x:Name="TranscriptText"
+            <!-- State: Error -->
+            <TextBlock x:Name="ErrorContent"
+                       Visibility="Collapsed"
+                       Padding="16,10"
+                       FontSize="12.5"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource OverlayDangerBrush}"
                        TextWrapping="Wrap"
-                       FontSize="14"
-                       Foreground="{StaticResource TextPrimaryBrush}"
                        MaxHeight="50"
-                       TextTrimming="CharacterEllipsis" />
+                       TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center" />
 
-            <!-- Status message -->
-            <TextBlock Grid.Row="3"
-                       x:Name="StatusText"
-                       FontSize="11"
-                       Foreground="{StaticResource TextSecondaryBrush}"
-                       Margin="0,4,0,0" />
+            <!-- State: Hint message -->
+            <TextBlock x:Name="HintContent"
+                       Visibility="Collapsed"
+                       Padding="13,8"
+                       FontSize="12.5"
+                       Foreground="{StaticResource OverlayTextBrush}"
+                       Opacity="0.85"
+                       TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center" />
+
         </Grid>
     </Border>
 </Window>

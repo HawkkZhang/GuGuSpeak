@@ -17,6 +17,12 @@
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- Brand image referenced by XAML (tray panel + settings header) must be a
+       WPF resource so pack:// URIs like /Assets/app-icon.png resolve at runtime. -->
+  <ItemGroup Condition="Exists('Assets\app-icon.png')">
+    <Resource Include="Assets\app-icon.png" />
+  </ItemGroup>
+
   <!-- Bundle ASR model files into the app output directory (for both run and publish) -->
   <ItemGroup Condition="Exists('$(BundledModelsDir)')">
     <Content Include="$(BundledModelsDir)\**\*.onnx;$(BundledModelsDir)\**\tokens.txt">
