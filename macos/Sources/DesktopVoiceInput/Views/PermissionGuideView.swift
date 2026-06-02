@@ -72,9 +72,7 @@ struct PermissionGuideView: View {
     }
 
     private var missingPermissions: [AppPermissionKind] {
-        AppPermissionKind.allCases.filter { permission in
-            !appModel.permissionCoordinator.state(for: permission).isUsable
-        }
+        appModel.missingPermissions
     }
 
     private func permissionRow(_ permission: AppPermissionKind) -> some View {

@@ -768,7 +768,7 @@ final class RecognitionOrchestrator: ObservableObject {
             || raw.contains("siri and dictation are disabled")
             || raw.contains("dictation are disabled")
             || raw.contains("系统听写已关闭") {
-            return "系统听写已关闭，本地识别不可用。请打开「系统设置 > 键盘 > 听写」，启用听写后再试；也可以先切换到豆包/千问。"
+            return "旧版 Apple Speech 本地识别被系统听写开关拦截。当前版本已改用 SenseVoice；请确认正在运行新版应用，或先切换到豆包/千问。"
         }
         if raw.contains("cancelled") || raw.contains("cancel") {
             return "识别被中断"

@@ -2,6 +2,34 @@
 
 This file is the first-stop handoff note for switching between Codex, Claude Code, Xcode, and other development tools.
 
+## Recent Fixes - 2026-06-01
+
+### Local recognition now uses sherpa-onnx SenseVoice instead of Apple Speech
+
+**What changed:**
+- `LocalSpeechProvider` no longer uses `SFSpeechRecognizer` / Apple Speech / system Dictation.
+- macOS local recognition now uses sherpa-onnx offline SenseVoice (`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`) through the C API Swift bridge.
+- The local provider buffers the hold-to-talk utterance and decodes once on key release. SenseVoice is not a streaming partial-result model, so local mode intentionally emits final text only.
+- SenseVoice ITN is enabled (`useInverseTextNormalization = true`), so the model can output punctuation/normalization directly.
+
+**Runtime/model setup:**
+- Xcode runs `scripts/install-sensevoice-runtime.sh` before build. It downloads ignored local artifacts under `ThirdParty/sherpa-onnx/`:
+  - `sherpa-onnx.xcframework` for headers
+  - `libsherpa-onnx-c-api.dylib`
+  - `libonnxruntime.1.24.4.dylib`
+- Install the model with `./scripts/install-sensevoice-model.sh`; it extracts to `~/Library/Application Support/GuGuTalk/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/`.
+- `GUGUTALK_LOCAL_ASR_MODEL_DIR` can point the app at another model directory containing `tokens.txt` plus `model.int8.onnx` or `model.onnx`.
+
+**Permissions/UI:**
+- Local mode no longer requires macOS Speech Recognition privacy permission or system Dictation.
+- Required capture permissions are now microphone, accessibility, and input monitoring.
+
+**Verification:**
+- Debug `xcodebuild -project DesktopVoiceInput.xcodeproj -scheme DesktopVoiceInput -configuration Debug -derivedDataPath /tmp/DesktopVoiceInputDerivedData build` passed.
+- `scripts/install-sensevoice-model.sh` installed the int8 model under `~/Library/Application Support/GuGuTalk/models/`.
+- C API, Swift wrapper, and `LocalSpeechProvider` smoke tests decoded bundled `zh.wav` and `en.wav` successfully. Outputs included Chinese punctuation (`开放时间早上9点至下午5点。`) and English text (`The tribal chieftain called for the boy and presented him with 50 pieces of code.`).
+- Build warning remains: bundled ONNX Runtime 1.24.4 declares macOS min 15.5 while the app deployment target is still 14.0. The immediate target test machine is macOS 15.7.3, but revisit this before claiming macOS 14 support for local SenseVoice builds.
+
 ## Recent Fixes - 2026-05-17
 
 ### 首次安装后只能搜索到，打开后才在应用列表/托盘里出现（已收紧打包身份）
@@ -598,7 +626,7 @@ This is a macOS-only desktop voice input app. It is not a system IME. The produc
 - global hotkeys
 - small floating recognition preview
 - final text insertion into the currently focused app
-- local Apple Speech, Qwen realtime, and Doubao realtime providers
+- local SenseVoice (sherpa-onnx offline), Qwen realtime, and Doubao realtime providers
 
 Default user experience:
 
@@ -637,7 +665,7 @@ The app currently has:
 - two shortcut modes:
   - hold-to-talk
   - press-once-to-start, press-again-to-stop
-- local Apple Speech provider
+- local SenseVoice provider
 - Qwen realtime provider
 - Doubao realtime provider
 - floating preview overlay

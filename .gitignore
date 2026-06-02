@@ -11,6 +11,9 @@ macos/dist/dmg/*.app
 macos/dist/staging/
 macos/xcuserdata/
 macos/DerivedData/
+macos/.modelcache/
+macos/ThirdParty/sherpa-onnx/
+macos/Resources/models/
 macos/.swiftpm/configuration/registries.json
 macos/.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 

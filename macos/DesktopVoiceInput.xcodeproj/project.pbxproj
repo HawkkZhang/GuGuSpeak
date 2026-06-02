@@ -38,6 +38,10 @@
 		30000000000000000000001D /* SmartPostProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001D /* SmartPostProcessor.swift */; };
 		30000000000000000000001E /* HotwordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001E /* HotwordStore.swift */; };
 		30000000000000000000001F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001F /* Assets.xcassets */; };
+		300000000000000000000020 /* LocalAsrModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000020 /* LocalAsrModelManager.swift */; };
+		300000000000000000000021 /* SherpaOnnx.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000021 /* SherpaOnnx.swift */; };
+		300000000000000000000023 /* libsherpa-onnx-c-api.dylib in Copy Runtime Libraries */ = {isa = PBXBuildFile; fileRef = 200000000000000000000024 /* libsherpa-onnx-c-api.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		300000000000000000000024 /* libonnxruntime.1.24.4.dylib in Copy Runtime Libraries */ = {isa = PBXBuildFile; fileRef = 200000000000000000000025 /* libonnxruntime.1.24.4.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,7 +78,28 @@
 		20000000000000000000001D /* SmartPostProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPostProcessor.swift; sourceTree = "<group>"; };
 		20000000000000000000001E /* HotwordStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotwordStore.swift; sourceTree = "<group>"; };
 		20000000000000000000001F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		200000000000000000000020 /* LocalAsrModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAsrModelManager.swift; sourceTree = "<group>"; };
+		200000000000000000000021 /* SherpaOnnx.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SherpaOnnx.swift; sourceTree = "<group>"; };
+		200000000000000000000022 /* SherpaOnnx-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SherpaOnnx-Bridging-Header.h"; sourceTree = "<group>"; };
+		200000000000000000000023 /* sherpa-onnx.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = "ThirdParty/sherpa-onnx/sherpa-onnx.xcframework"; sourceTree = "<group>"; };
+		200000000000000000000024 /* libsherpa-onnx-c-api.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "ThirdParty/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib"; sourceTree = "<group>"; };
+		200000000000000000000025 /* libonnxruntime.1.24.4.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "ThirdParty/sherpa-onnx/lib/libonnxruntime.1.24.4.dylib"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		100000000000000000000012 /* Copy Runtime Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				300000000000000000000023 /* libsherpa-onnx-c-api.dylib in Copy Runtime Libraries */,
+				300000000000000000000024 /* libonnxruntime.1.24.4.dylib in Copy Runtime Libraries */,
+			);
+			name = "Copy Runtime Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		10000000000000000000000F /* Frameworks */ = {
@@ -92,6 +117,9 @@
 			children = (
 				100000000000000000000003 /* DesktopVoiceInput */,
 				100000000000000000000004 /* Config */,
+				200000000000000000000023 /* sherpa-onnx.xcframework */,
+				200000000000000000000024 /* libsherpa-onnx-c-api.dylib */,
+				200000000000000000000025 /* libonnxruntime.1.24.4.dylib */,
 				100000000000000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -170,10 +198,13 @@
 			isa = PBXGroup;
 			children = (
 				20000000000000000000000F /* DoubaoSpeechProvider.swift */,
+				200000000000000000000020 /* LocalAsrModelManager.swift */,
 				200000000000000000000010 /* LocalSpeechProvider.swift */,
 				200000000000000000000011 /* ProviderFactory.swift */,
 				200000000000000000000012 /* QwenSpeechProvider.swift */,
 				200000000000000000000018 /* RealtimeWebSocketTransport.swift */,
+				200000000000000000000022 /* SherpaOnnx-Bridging-Header.h */,
+				200000000000000000000021 /* SherpaOnnx.swift */,
 				200000000000000000000013 /* SpeechProvider.swift */,
 			);
 			path = Providers;
@@ -197,8 +228,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 10000000000000000000000C /* Build configuration list for PBXNativeTarget "DesktopVoiceInput" */;
 			buildPhases = (
+				500000000000000000000001 /* Install SenseVoice Runtime */,
 				10000000000000000000000E /* Sources */,
 				10000000000000000000000F /* Frameworks */,
+				100000000000000000000012 /* Copy Runtime Libraries */,
 				100000000000000000000010 /* Resources */,
 			);
 			buildRules = (
@@ -253,6 +286,30 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		500000000000000000000001 /* Install SenseVoice Runtime */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Install SenseVoice Runtime";
+				outputFileListPaths = (
+				);
+				outputPaths = (
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/sherpa-onnx.xcframework/Info.plist",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/lib/libsherpa-onnx-c-api.dylib",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/lib/libonnxruntime.1.24.4.dylib",
+				);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "bash \"$PROJECT_DIR/scripts/install-sensevoice-runtime.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		10000000000000000000000E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -273,10 +330,12 @@
 				30000000000000000000000D /* TextInsertionService.swift in Sources */,
 				30000000000000000000000E /* TranscriptPostProcessor.swift in Sources */,
 				30000000000000000000000F /* DoubaoSpeechProvider.swift in Sources */,
+				300000000000000000000020 /* LocalAsrModelManager.swift in Sources */,
 				300000000000000000000010 /* LocalSpeechProvider.swift in Sources */,
 				300000000000000000000011 /* ProviderFactory.swift in Sources */,
 				300000000000000000000012 /* QwenSpeechProvider.swift in Sources */,
 				300000000000000000000013 /* SpeechProvider.swift in Sources */,
+				300000000000000000000021 /* SherpaOnnx.swift in Sources */,
 				300000000000000000000014 /* MenuBarContentView.swift in Sources */,
 				300000000000000000000015 /* SettingsView.swift in Sources */,
 				300000000000000000000016 /* AppPermissionKind.swift in Sources */,
@@ -305,19 +364,38 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_LANGUAGE = en;
 				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/sherpa-onnx.xcframework/macos-arm64_x86_64/Headers",
+				);
 				INFOPLIST_FILE = Config/DesktopVoiceInput-Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/lib",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsherpa-onnx-c-api",
+					"-lonnxruntime.1.24.4",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.end.DesktopVoiceInput;
 				PRODUCT_MODULE_NAME = DesktopVoiceInput;
 				PRODUCT_NAME = GuGuTalk;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/DesktopVoiceInput/Services/Providers/SherpaOnnx-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 			};
@@ -334,19 +412,38 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_LANGUAGE = en;
 				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/sherpa-onnx.xcframework/macos-arm64_x86_64/Headers",
+				);
 				INFOPLIST_FILE = Config/DesktopVoiceInput-Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/sherpa-onnx/lib",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsherpa-onnx-c-api",
+					"-lonnxruntime.1.24.4",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.end.DesktopVoiceInput;
 				PRODUCT_MODULE_NAME = DesktopVoiceInput;
 				PRODUCT_NAME = GuGuTalk;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/DesktopVoiceInput/Services/Providers/SherpaOnnx-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_VERSION = 6.0;

@@ -26,7 +26,7 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
         case .microphone:
             "采集说话声音。未授权时无法录音。"
         case .speechRecognition:
-            "用于本地语音转文字。本地模式还需要在系统键盘设置里启用听写。"
+            "历史 Apple Speech 本地识别权限。当前 SenseVoice 本地模式不再需要。"
         case .accessibility:
             "把识别结果写回当前输入框。未授权时只能预览。"
         case .inputMonitoring:
@@ -70,9 +70,9 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
 
     var canPromptInApp: Bool {
         switch self {
-        case .microphone, .speechRecognition, .inputMonitoring:
+        case .microphone, .inputMonitoring:
             true
-        case .accessibility:
+        case .speechRecognition, .accessibility:
             false
         }
     }

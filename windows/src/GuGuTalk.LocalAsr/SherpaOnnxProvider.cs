@@ -11,14 +11,13 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     private static readonly ILogger Logger = Log.ForContext<SherpaOnnxProvider>();
 
     private readonly Channel<TranscriptEvent> _channel = Channel.CreateUnbounded<TranscriptEvent>();
-    private readonly object _streamLock = new();
+    private readonly object _recognizerLock = new();
 
-    // Recognizer is loaded once and reused across sessions (loading takes ~5s).
-    // Each session gets a fresh stream from CreateStream() (microseconds).
-    private OnlineRecognizer? _recognizer;
-    private OnlineStream? _stream;
-    private int _revision;
-    private string _lastText = "";
+    // SenseVoice is an offline model. Keep the recognizer cached, then decode
+    // the held utterance once the user releases the hotkey.
+    private OfflineRecognizer? _recognizer;
+    private MemoryStream? _sessionPcm;
+    private int _sessionSampleRate = 16000;
     private bool _hasTerminated;
     private bool _disposed;
     private int _chunksReceived;
@@ -34,8 +33,8 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     public ChannelReader<TranscriptEvent> Events => _channel.Reader;
 
     /// <summary>
-    /// Loads the recognizer in the background so the first hotkey press doesn't
-    /// have to wait ~5-10s for model load. Safe to call multiple times.
+    /// Loads the recognizer in the background so the first hotkey press does not
+    /// wait for ONNX model initialization. Safe to call multiple times.
     /// </summary>
     public void Prewarm()
     {
@@ -43,22 +42,22 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
         {
             try
             {
-                lock (_streamLock)
+                lock (_recognizerLock)
                 {
                     if (_disposed || _recognizer is not null) return;
                     var config = new RecognitionConfig(
                         LanguageCode: "zh-CN", SampleRate: 16000,
-                        Mode: RecognitionMode.Local, PartialResultsEnabled: true,
+                        Mode: RecognitionMode.Local, PartialResultsEnabled: false,
                         Endpointing: EndpointingPolicy.Manual,
                         DoubaoCredentials: new DoubaoCredentials("", "", "", ""),
                         QwenCredentials: new QwenCredentials("", "", ""));
                     _recognizer = LoadRecognizer(config);
                 }
-                Logger.Information("Recognizer prewarmed");
+                Logger.Information("SenseVoice recognizer prewarmed");
             }
             catch (Exception ex)
             {
-                Logger.Warning(ex, "Recognizer prewarm failed (will retry on first use)");
+                Logger.Warning(ex, "SenseVoice recognizer prewarm failed (will retry on first use)");
             }
         });
     }
@@ -67,34 +66,16 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SherpaOnnxProvider));
 
-        // Recognizer load takes ~5-10s for the zh-14M model. Run it on a worker
-        // thread so the keyboard hook (which fires StartSessionAsync via the
-        // hotkey handler) doesn't block message-pump events for that long.
         return Task.Run(() =>
         {
-            lock (_streamLock)
+            lock (_recognizerLock)
             {
                 if (_disposed) return;
-                if (_recognizer is null)
-                {
-                    _recognizer = LoadRecognizer(config);
-                }
+                _recognizer ??= LoadRecognizer(config);
 
-                _stream?.Dispose();
-                _stream = _recognizer.CreateStream();
-
-                // Streaming Zipformer's deepest encoder layer needs 128 frames
-                // (~1.28s) of left context before its outputs are reliable, so
-                // the first ~0.3s of real audio is processed with an empty
-                // context window and the leading syllables get dropped. Feed a
-                // half second of silence right after CreateStream so by the
-                // time the user's first phoneme arrives the encoder context is
-                // already warm.
-                int warmupSamples = (int)(config.SampleRate / 2);
-                _stream.AcceptWaveform((int)config.SampleRate, new float[warmupSamples]);
-
-                _revision = 0;
-                _lastText = "";
+                _sessionPcm?.Dispose();
+                _sessionPcm = new MemoryStream();
+                _sessionSampleRate = (int)config.SampleRate;
                 _hasTerminated = false;
                 _chunksReceived = 0;
                 _audioLevelSum = 0;
@@ -102,46 +83,23 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
             }
 
             _channel.Writer.TryWrite(new TranscriptEvent.SessionStarted(Mode));
-            Logger.Information("Local ASR session ready (recognizer cached)");
+            Logger.Information("Local SenseVoice ASR session ready (recognizer cached)");
         }, ct);
     }
 
     public Task SendAudioAsync(AudioChunk chunk, CancellationToken ct = default)
     {
-        if (_recognizer is null || _stream is null) return Task.CompletedTask;
+        if (_disposed) return Task.CompletedTask;
 
-        float[] samples = ConvertPcm16ToFloat(chunk.PcmData);
-
-        // sherpa-onnx OnlineRecognizer/OnlineStream are not thread-safe. Audio
-        // chunks may arrive on different threadpool threads, so the lock keeps
-        // native state consistent and prevents the SEH crash in GetResult.
-        lock (_streamLock)
+        lock (_recognizerLock)
         {
-            if (_recognizer is null || _stream is null) return Task.CompletedTask;
+            if (_recognizer is null || _sessionPcm is null) return Task.CompletedTask;
 
-            _stream.AcceptWaveform((int)chunk.SampleRate, samples);
+            _sessionPcm.Write(chunk.PcmData, 0, chunk.PcmData.Length);
+            _sessionSampleRate = (int)chunk.SampleRate;
             _chunksReceived++;
             _audioLevelSum += chunk.AudioLevel;
             WriteDebugWav(chunk.PcmData);
-
-            while (_recognizer.IsReady(_stream))
-            {
-                _recognizer.Decode(_stream);
-            }
-
-            string text = _recognizer.GetResult(_stream).Text.Trim();
-            if (!string.IsNullOrEmpty(text) && text != _lastText)
-            {
-                _lastText = text;
-                _revision++;
-                _channel.Writer.TryWrite(new TranscriptEvent.PartialTextUpdated(text, _revision));
-            }
-            // Endpoint detection is intentionally disabled for hold-to-talk:
-            // the user signals end-of-utterance by releasing the hotkey, not by
-            // pausing. Calling Reset() mid-utterance was clobbering the decoded
-            // partial — when the trailing-silence rule fired between syllables
-            // the buffered text was thrown away and the final result came back
-            // empty. We let the recognizer keep state until FinishAudioAsync.
         }
 
         return Task.CompletedTask;
@@ -149,53 +107,78 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
 
     public Task FinishAudioAsync(CancellationToken ct = default)
     {
-        if (_recognizer is null || _stream is null)
+        if (_disposed)
         {
             EmitSessionEndedIfNeeded();
             return Task.CompletedTask;
         }
 
-        lock (_streamLock)
+        return Task.Run(() =>
         {
-            if (_recognizer is null || _stream is null) return Task.CompletedTask;
-
-            // Signal end of input, then decode remaining frames in the buffer.
-            // Do NOT feed silence before InputFinished() - it may interfere with
-            // decoding the actual speech audio that's already in the buffer.
-            _stream.InputFinished();
-
-            while (_recognizer.IsReady(_stream))
+            try
             {
-                _recognizer.Decode(_stream);
-            }
+                string finalText;
+                int byteCount;
+                double avgLevel;
 
-            string finalText = _recognizer.GetResult(_stream).Text.Trim();
-            double avgLevel = _chunksReceived > 0 ? _audioLevelSum / _chunksReceived : 0;
-            Logger.Information("Finish: chunks={Chunks} avgLevel={Avg:F4} lastPartial='{Last}' final='{Final}'",
-                _chunksReceived, avgLevel, _lastText, finalText);
-            if (string.IsNullOrEmpty(finalText))
+                lock (_recognizerLock)
+                {
+                    if (_recognizer is null || _sessionPcm is null)
+                    {
+                        _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("本地识别模型尚未就绪"));
+                        return;
+                    }
+
+                    var pcm = _sessionPcm.ToArray();
+                    _sessionPcm.Dispose();
+                    _sessionPcm = null;
+
+                    byteCount = pcm.Length;
+                    avgLevel = _chunksReceived > 0 ? _audioLevelSum / _chunksReceived : 0;
+                    if (pcm.Length == 0)
+                    {
+                        _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("没有收到有效音频"));
+                        return;
+                    }
+
+                    var samples = ConvertPcm16ToFloat(pcm);
+                    var stream = _recognizer.CreateStream();
+                    stream.AcceptWaveform(_sessionSampleRate, samples);
+                    _recognizer.Decode(new List<OfflineStream> { stream });
+                    finalText = stream.Result.Text.Trim();
+                }
+
+                Logger.Information("SenseVoice finish: bytes={Bytes} chunks={Chunks} avgLevel={Avg:F4} final='{Final}'",
+                    byteCount, _chunksReceived, avgLevel, finalText);
+
+                if (!string.IsNullOrWhiteSpace(finalText))
+                {
+                    _channel.Writer.TryWrite(new TranscriptEvent.FinalTextReady(finalText));
+                }
+                else
+                {
+                    _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("说话时间太短，没有识别到内容"));
+                }
+            }
+            catch (Exception ex)
             {
-                finalText = _lastText;
+                Logger.Error(ex, "SenseVoice local recognition failed");
+                _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed($"本地识别失败：{ex.Message}"));
             }
-
-            if (!string.IsNullOrEmpty(finalText))
+            finally
             {
-                _channel.Writer.TryWrite(new TranscriptEvent.FinalTextReady(finalText));
+                EmitSessionEndedIfNeeded();
             }
-        }
-
-        EmitSessionEndedIfNeeded();
-        return Task.CompletedTask;
+        }, ct);
     }
 
     public Task CancelAsync()
     {
         EmitSessionEndedIfNeeded();
-        // Only dispose the stream — the recognizer stays alive for next session.
-        lock (_streamLock)
+        lock (_recognizerLock)
         {
-            _stream?.Dispose();
-            _stream = null;
+            _sessionPcm?.Dispose();
+            _sessionPcm = null;
             CloseDebugWav();
         }
         return Task.CompletedTask;
@@ -205,66 +188,42 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     {
         if (_disposed) return ValueTask.CompletedTask;
         _disposed = true;
-        lock (_streamLock)
+        lock (_recognizerLock)
         {
-            _stream?.Dispose();
-            _stream = null;
+            _sessionPcm?.Dispose();
+            _sessionPcm = null;
             _recognizer?.Dispose();
             _recognizer = null;
+            CloseDebugWav();
         }
         return ValueTask.CompletedTask;
     }
 
-    private static OnlineRecognizer LoadRecognizer(RecognitionConfig config)
+    private static OfflineRecognizer LoadRecognizer(RecognitionConfig config)
     {
         var tokensPath = ModelManager.GetTokensPath()
-            ?? throw new InvalidOperationException("本地识别模型未找到。安装包中应已包含模型，请检查安装目录。");
+            ?? throw new InvalidOperationException("本地识别模型 tokens.txt 未找到。请检查安装目录或用户模型目录。");
+        var modelPath = ModelManager.GetModelPath()
+            ?? throw new InvalidOperationException("SenseVoice model.int8.onnx 未找到。请检查安装目录或用户模型目录。");
 
-        var modelDir = Path.GetDirectoryName(tokensPath)!;
-        Logger.Information("Loading local ASR model from: {Dir}", modelDir);
+        var modelDir = Path.GetDirectoryName(modelPath)!;
+        Logger.Information("Loading SenseVoice local ASR model from: {Dir}", modelDir);
 
-        var modelConfig = new OnlineModelConfig
+        var recognizerConfig = new OfflineRecognizerConfig
         {
-            Tokens = tokensPath,
-            NumThreads = 4,
-            Provider = "cpu"
-        };
-
-        var encoder = FindFile(modelDir, "encoder*.onnx");
-        var decoder = FindFile(modelDir, "decoder*.onnx");
-        var joiner = FindFile(modelDir, "joiner*.onnx");
-
-        if (encoder is not null && decoder is not null && joiner is not null)
-        {
-            modelConfig.Transducer.Encoder = encoder;
-            modelConfig.Transducer.Decoder = decoder;
-            modelConfig.Transducer.Joiner = joiner;
-            Logger.Information("Detected transducer model");
-        }
-        else if (encoder is not null && decoder is not null)
-        {
-            modelConfig.Paraformer.Encoder = encoder;
-            modelConfig.Paraformer.Decoder = decoder;
-            Logger.Information("Detected paraformer model");
-        }
-        else
-        {
-            throw new InvalidOperationException($"未找到有效的识别模型文件 (位置: {modelDir})");
-        }
-
-        var recognizerConfig = new OnlineRecognizerConfig
-        {
-            ModelConfig = modelConfig,
-            DecodingMethod = "greedy_search",
-            // Endpointing is disabled: hold-to-talk relies on the user releasing
-            // the hotkey, and Reset() mid-utterance (which the endpoint flow
-            // wants) drops the partial text the model has already produced.
-            EnableEndpoint = 0
+            DecodingMethod = "greedy_search"
         };
         recognizerConfig.FeatConfig.SampleRate = (int)config.SampleRate;
         recognizerConfig.FeatConfig.FeatureDim = 80;
+        recognizerConfig.ModelConfig.Tokens = tokensPath;
+        recognizerConfig.ModelConfig.NumThreads = 4;
+        recognizerConfig.ModelConfig.Provider = "cpu";
+        recognizerConfig.ModelConfig.Debug = 0;
+        recognizerConfig.ModelConfig.SenseVoice.Model = modelPath;
+        recognizerConfig.ModelConfig.SenseVoice.Language = "auto";
+        recognizerConfig.ModelConfig.SenseVoice.UseInverseTextNormalization = 1;
 
-        return new OnlineRecognizer(recognizerConfig);
+        return new OfflineRecognizer(recognizerConfig);
     }
 
     private void EmitSessionEndedIfNeeded()
@@ -367,21 +326,5 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
             samples[i] = sample / 32768.0f;
         }
         return samples;
-    }
-
-    private static string? FindFile(string dir, string searchPattern)
-    {
-        try
-        {
-            var matches = Directory.GetFiles(dir, searchPattern);
-            // Prefer non-quantized variants for broader onnxruntime compatibility.
-            return matches
-                .OrderBy(p => p.Contains("int8", StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault();
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

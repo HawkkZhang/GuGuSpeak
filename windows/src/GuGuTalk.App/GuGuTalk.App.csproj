@@ -4,7 +4,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>GuGuTalk.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <BundledModelsDir>$(MSBuildThisFileDirectory)..\GuGuTalk.LocalAsr\bundled-models</BundledModelsDir>
+    <BundledModelsDir>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'GuGuTalk.LocalAsr', 'bundled-models'))</BundledModelsDir>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
   </PropertyGroup>
@@ -25,7 +25,7 @@
 
   <!-- Bundle ASR model files into the app output directory (for both run and publish) -->
   <ItemGroup Condition="Exists('$(BundledModelsDir)')">
-    <Content Include="$(BundledModelsDir)\**\*.onnx;$(BundledModelsDir)\**\tokens.txt">
+    <Content Include="$(BundledModelsDir)/**/*.onnx;$(BundledModelsDir)/**/tokens.txt">
       <Link>models\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

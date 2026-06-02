@@ -2,7 +2,6 @@ import ApplicationServices
 import AVFoundation
 import Combine
 import Foundation
-import Speech
 
 @MainActor
 final class PermissionCoordinator: ObservableObject {
@@ -13,7 +12,7 @@ final class PermissionCoordinator: ObservableObject {
 
     func refreshAll(promptForSystemDialogs: Bool) async {
         microphone = await refreshMicrophone(prompt: promptForSystemDialogs)
-        speechRecognition = await refreshSpeechRecognition(prompt: promptForSystemDialogs)
+        speechRecognition = .authorized
         accessibility = refreshAccessibility(prompt: promptForSystemDialogs)
         inputMonitoring = refreshInputMonitoring(prompt: promptForSystemDialogs)
     }
@@ -32,13 +31,7 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     func missingPermissions(for mode: RecognitionMode) -> [AppPermissionKind] {
-        var required: [AppPermissionKind] = [.microphone, .accessibility, .inputMonitoring]
-
-        if mode == .auto || mode == .local {
-            required.insert(.speechRecognition, at: 1)
-        }
-
-        return required.filter { !state(for: $0).isUsable }
+        [.microphone, .accessibility, .inputMonitoring].filter { !state(for: $0).isUsable }
     }
 
     func requestMissingPermissions(for mode: RecognitionMode) async {
@@ -47,7 +40,7 @@ final class PermissionCoordinator: ObservableObject {
             case .microphone:
                 microphone = await refreshMicrophone(prompt: true)
             case .speechRecognition:
-                speechRecognition = await refreshSpeechRecognition(prompt: true)
+                speechRecognition = .authorized
             case .accessibility:
                 accessibility = refreshAccessibility(prompt: true)
             case .inputMonitoring:
@@ -76,39 +69,7 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     func refreshSpeechRecognition(prompt: Bool) async -> PermissionState {
-        switch SFSpeechRecognizer.authorizationStatus() {
-        case .authorized:
-            return .authorized
-        case .denied, .restricted:
-            return .denied
-        case .notDetermined:
-            guard prompt else { return .notDetermined }
-            return await Self.requestSpeechRecognitionAuthorization()
-        @unknown default:
-            return .unsupported
-        }
-    }
-
-    nonisolated private static func requestSpeechRecognitionAuthorization() async -> PermissionState {
-        await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                let state = speechPermissionState(from: status)
-                continuation.resume(returning: state)
-            }
-        }
-    }
-
-    nonisolated private static func speechPermissionState(from status: SFSpeechRecognizerAuthorizationStatus) -> PermissionState {
-        switch status {
-        case .authorized:
-            .authorized
-        case .denied, .restricted:
-            .denied
-        case .notDetermined:
-            .notDetermined
-        @unknown default:
-            .unsupported
-        }
+        .authorized
     }
 
     func refreshAccessibility(prompt: Bool) -> PermissionState {

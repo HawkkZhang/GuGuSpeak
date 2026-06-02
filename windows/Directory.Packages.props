@@ -12,10 +12,8 @@
     <!-- UIAutomation -->
     <PackageVersion Include="FlaUI.Core" Version="4.0.0" />
     <PackageVersion Include="FlaUI.UIA3" Version="4.0.0" />
-    <!-- Local ASR. 1.13.2 is required by the 2025-06-30 int8 zipformer model:
-         on 1.10.30 that model returns empty text for every input (verified with
-         a standalone probe against a known recording). 14M model also works on
-         1.13.2 with no regression. -->
+    <!-- Local ASR. 1.13.2 provides the OfflineRecognizer SenseVoice bindings
+         used by the bundled 2024-07-17 int8 model. -->
     <PackageVersion Include="org.k2fsa.sherpa.onnx" Version="1.13.2" />
     <!-- Logging -->
     <PackageVersion Include="Serilog" Version="4.2.0" />

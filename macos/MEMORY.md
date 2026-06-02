@@ -50,7 +50,7 @@
 ## Current Status
 
 - DesktopVoiceInput is a macOS menu bar voice input app prototype.
-- Local Apple Speech, Qwen realtime, and Doubao realtime integrations have all been implemented.
+- Local SenseVoice (sherpa-onnx offline), Qwen realtime, and Doubao realtime integrations have all been implemented.
 - The current stable checkpoint is tag `stable-2026-05-01`, commit `960f2b3`.
 - The latest synced checkpoint is on `main`; use `git log --oneline -1` for the exact current commit.
 - GitHub repository: `https://github.com/HawkkZhang/GuGuTalk`.
@@ -66,7 +66,9 @@
 - If the user manually triggers a new recording while previous recognition work is still active, the app should cancel the previous session/work first and then start the new session. This includes startup handshakes, active providers, audio capture, final timeout, stale provider events, and AI post-processing.
 - Capture now starts microphone audio immediately after permissions pass, before cloud/local provider startup completes. Audio captured during provider startup is held in a bounded 4-second pre-roll buffer and flushed to the selected provider once ready, reducing dropped opening words and false "no speech heard" results.
 - Orchestrator-level audio sends must also stay serialized. Pre-roll audio and live audio now enter a single `AudioSendQueue`, and `finishAudio()` waits for that queue to drain so the provider never receives an end frame before earlier captured audio.
-- Local Apple Speech must not assume a fixed runtime audio format. Keep cloud PCM as `16k Int16`, but feed local recognition through `SFSpeechAudioBufferRecognitionRequest.nativeAudioFormat` and check `supportsOnDeviceRecognition` before requiring on-device recognition.
+- Local SenseVoice uses the shared `16k Int16` PCM from `AudioCaptureEngine`, buffers the utterance, and decodes once on release. It does not emit streaming partials.
+- macOS local mode no longer requires Apple Speech, Speech Recognition privacy permission, or system Dictation. It requires microphone, accessibility, and input monitoring.
+- SenseVoice runtime files live under ignored `macos/ThirdParty/sherpa-onnx/`; the model install helper is `macos/scripts/install-sensevoice-model.sh`. The int8 model has been installed locally and smoke-tested through C API, Swift wrapper, and `LocalSpeechProvider` with bundled Chinese/English WAVs.
 - The 300 ms tail-buffer delay after key release should keep accepting audio until capture is actually stopped; do not reintroduce a guard that drops chunks merely because finish has been requested.
 - GuGuTalk must be usable inside its own text fields, including prompt and provider configuration fields. Shortcut recording should suspend global hotkeys only while recording a shortcut; do not block all insertion just because the foreground app is GuGuTalk.
 - Doubao diagnostics intentionally log raw provider transcript text and normalized transcript text in Release builds while this issue is being verified. Each update is printed as `[DoubaoTranscript]` and also appended to `~/Library/Logs/GuGuTalk/doubao-transcripts.log`. Remove or gate these transcript-content logs before a privacy-sensitive public release.

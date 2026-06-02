@@ -2,7 +2,28 @@
 
 Snapshot at the point of switching machines. Branch: `fix/windows-build`.
 
-## Where things stand
+## Update - 2026-06-01
+
+The local Windows ASR path now targets SenseVoice, superseding the older 14M/Zipformer notes below.
+
+- Bundled model: `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
+- Build download: GitHub `asr-models` archive of the same name (~155MB archive, ~240MB extracted), extracted to `src/GuGuTalk.LocalAsr/bundled-models/`
+- Runtime lookup: `%LOCALAPPDATA%\GuGuTalk\models\` first, then `<exe>\models\`
+- Expected files: `tokens.txt` plus `model.int8.onnx` (preferred) or `model.onnx`
+- Provider: `SherpaOnnxProvider` now uses `OfflineRecognizer` + `ModelConfig.SenseVoice`; it buffers PCM during hold-to-talk and decodes once in `FinishAudioAsync`
+- SenseVoice ITN is enabled, so punctuation/normalization should come from the model before GuGuTalk post-processing
+- `ModelConfig.SenseVoice.Language = "auto"` is set for Chinese/English/mixed-language use.
+- `SkipAsrModelDownload=true` can be passed for non-Windows cross-compilation checks; normal Windows builds still download the bundled model.
+- Windows smoke helper: `scripts\smoke-local-asr.ps1` builds the app, points `GUGUTALK_LOCAL_ASR_MODEL_DIR` at the bundled model, then decodes bundled `zh.wav` and `en.wav` through `SherpaOnnxProvider`.
+
+Verification from macOS cross-targeting:
+- `dotnet build src/GuGuTalk.LocalAsr/GuGuTalk.LocalAsr.csproj -m:1 /p:EnableWindowsTargeting=true /p:SkipAsrModelDownload=true` passed.
+- `dotnet build src/GuGuTalk.App/GuGuTalk.App.csproj -m:1 /p:EnableWindowsTargeting=true /p:SkipAsrModelDownload=true` passed and produced `bin/Debug/net8.0-windows/win-x64/GuGuTalk.App.dll`.
+- A C# sherpa-onnx smoke test with the same `OfflineRecognizerConfig` decoded bundled `zh.wav` and `en.wav` successfully on macOS. The actual Windows native DLL path still needs a Windows machine for live microphone testing.
+
+## Legacy status before the SenseVoice switch
+
+The following notes describe the previous 14M/Zipformer debugging state. Keep them for insertion-path context, but do not treat the model details as current.
 
 - Build is clean. `dotnet build src/GuGuTalk.App/GuGuTalk.App.csproj`
   produces a working app at
@@ -15,9 +36,9 @@ Snapshot at the point of switching machines. Branch: `fix/windows-build`.
 - **The bubble shows the recognised text but it does NOT reach the
   cursor.** This is the open issue the next machine should pick up.
 
-## Two recently-applied fixes (already committed pending push)
+## Legacy fixes from the previous 14M/Zipformer path
 
-### 1. Reverted to the 14M model
+### 1. Historical: reverted to the 14M model
 
 `src/GuGuTalk.LocalAsr/GuGuTalk.LocalAsr.csproj` ModelName is now
 `sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23`.
@@ -141,21 +162,20 @@ dotnet build installer/GuGuTalk.Installer.wixproj -c Release
 # MSI lands at installer/bin/Release/GuGuTalk.Installer.msi (~178MB)
 ```
 
-First build downloads the 14M model
-(`sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2`, ~70MB)
+First build downloads the SenseVoice model
+(`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`, ~155MB archive / ~240MB extracted)
 into `windows/.modelcache/` and extracts it into
 `windows/src/GuGuTalk.LocalAsr/bundled-models/`.
 `download-model.ps1` is idempotent; re-run if download fails.
 
 ## Architecture notes worth carrying forward
 
-- `sherpa-onnx` `OnlineRecognizer` / `OnlineStream` are NOT thread-safe.
-  Concurrent calls produce SEH `0xe0434352` deep in `GetResult`. All
-  native calls are serialized behind `_streamLock` in
-  `SherpaOnnxProvider`. Don't relax this.
-- The recognizer takes ~1–2s to load the 14M model. It loads at app
-  start via `Prewarm()` and is reused across hotkey presses. Loading
-  per session re-introduced the keyboard-hook block.
+- `sherpa-onnx` native recognizers should be treated as single-threaded
+  from managed code. Current SenseVoice calls are serialized behind
+  `_recognizerLock` in `SherpaOnnxProvider`. Don't relax this.
+- The SenseVoice recognizer is loaded at app start via `Prewarm()` and
+  reused across hotkey presses. Loading per session re-introduces the
+  keyboard-hook block.
 - Audio chunks must reach the recognizer in order. The original
   per-chunk `Task.Run` dispatch reordered chunks across threadpool
   threads and produced garbage transcripts. The single-consumer
@@ -185,7 +205,7 @@ into `windows/.modelcache/` and extracts it into
 | User settings | `%APPDATA%\GuGuTalk\settings.json` |
 | Logs | `%LOCALAPPDATA%\GuGuTalk\logs\gugutalk-*.log` |
 | Per-session debug WAV | `%LOCALAPPDATA%\GuGuTalk\debug\session-*.wav` |
-| Bundled model | `windows\src\GuGuTalk.LocalAsr\bundled-models\sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23\` |
+| Bundled model | `windows\src\GuGuTalk.LocalAsr\bundled-models\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\` |
 | Model download cache | `windows\.modelcache\` |
 | Built MSI | `windows\installer\bin\Release\GuGuTalk.Installer.msi` |
 

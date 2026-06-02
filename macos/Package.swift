@@ -1,7 +1,35 @@
 // swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
+import Foundation
 import PackageDescription
+
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let sherpaHeaderDir = packageRoot
+    .appendingPathComponent("ThirdParty/sherpa-onnx/sherpa-onnx.xcframework/macos-arm64_x86_64/Headers")
+    .path
+let sherpaLibDir = packageRoot
+    .appendingPathComponent("ThirdParty/sherpa-onnx/lib")
+    .path
+
+let sherpaSwiftSettings: [SwiftSetting] = [
+    .unsafeFlags([
+        "-import-objc-header",
+        "Sources/DesktopVoiceInput/Services/Providers/SherpaOnnx-Bridging-Header.h",
+        "-Xcc", "-I\(sherpaHeaderDir)",
+    ]),
+]
+
+let sherpaLinkerSettings: [LinkerSetting] = [
+    .unsafeFlags([
+        "-L", sherpaLibDir,
+        "-lsherpa-onnx-c-api",
+        "-lonnxruntime.1.24.4",
+        "-lc++",
+        "-Xlinker", "-rpath",
+        "-Xlinker", sherpaLibDir,
+    ]),
+]
 
 let package = Package(
     name: "DesktopVoiceInput",
@@ -10,11 +38,16 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "DesktopVoiceInput"
+            name: "DesktopVoiceInput",
+            exclude: ["Assets.xcassets"],
+            swiftSettings: sherpaSwiftSettings,
+            linkerSettings: sherpaLinkerSettings
         ),
         .testTarget(
             name: "DesktopVoiceInputTests",
-            dependencies: ["DesktopVoiceInput"]
+            dependencies: ["DesktopVoiceInput"],
+            swiftSettings: sherpaSwiftSettings,
+            linkerSettings: sherpaLinkerSettings
         ),
     ],
     swiftLanguageModes: [.v6]

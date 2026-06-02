@@ -23,6 +23,7 @@
 
 ```bash
 cd macos
+./scripts/install-sensevoice-model.sh
 xcodebuild -project DesktopVoiceInput.xcodeproj -scheme DesktopVoiceInput build
 ```
 

@@ -54,7 +54,7 @@ dotnet run --project src/GuGuTalk.App
 dotnet test
 ```
 
-**首次构建会自动下载 sherpa-onnx 中文模型**（~30MB），缓存到 `.modelcache/`。CI 应缓存这个目录。
+**首次构建会自动下载 sherpa-onnx SenseVoice int8 模型包**（约 155MB，解压后约 240MB），缓存到 `.modelcache/`。CI 应缓存这个目录。
 
 ## 打包
 
@@ -67,12 +67,12 @@ dotnet build installer/GuGuTalk.Installer.wixproj -c Release
 
 ## 模型管理
 
-- 默认模型：`sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23`
+- 默认模型：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
 - 构建时下载到：`src/GuGuTalk.LocalAsr/bundled-models/`（gitignored）
 - 运行时搜索顺序（`ModelManager.GetTokensPath()`）：
   1. 用户目录：`%LOCALAPPDATA%\GuGuTalk\models\`（用户可放替换模型）
   2. 安装目录：`<exe>\models\`（MSI 内置）
-- 切换模型只需改 `LocalAsr.csproj` 里 `<ModelName>` property，sherpa-onnx 兼容的流式模型都行
+- 当前 provider 使用 sherpa-onnx OfflineRecognizer + SenseVoice；替换模型需提供 `tokens.txt` 和 `model.int8.onnx`/`model.onnx`
 
 ## P/Invoke 注意事项
 

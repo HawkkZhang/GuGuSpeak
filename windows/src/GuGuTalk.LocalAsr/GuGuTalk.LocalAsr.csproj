@@ -1,11 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>GuGuTalk.LocalAsr</RootNamespace>
-    <ModelName>sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30</ModelName>
+    <ModelName>sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17</ModelName>
     <ModelArchive>$(ModelName).tar.bz2</ModelArchive>
     <ModelUrl>https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$(ModelArchive)</ModelUrl>
-    <ModelCacheDir>$(MSBuildThisFileDirectory)..\..\.modelcache</ModelCacheDir>
-    <ModelOutputDir>$(MSBuildThisFileDirectory)bundled-models\$(ModelName)</ModelOutputDir>
+    <ModelCacheDir>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', '..', '.modelcache'))</ModelCacheDir>
+    <BundledModelsRoot>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', 'bundled-models'))</BundledModelsRoot>
+    <ModelOutputDir>$([System.IO.Path]::Combine('$(BundledModelsRoot)', '$(ModelName)'))</ModelOutputDir>
+    <ModelTokensPath>$([System.IO.Path]::Combine('$(ModelOutputDir)', 'tokens.txt'))</ModelTokensPath>
+    <SkipAsrModelDownload>false</SkipAsrModelDownload>
+    <PowerShellExe Condition="'$(PowerShellExe)' == '' And '$(OS)' == 'Windows_NT'">powershell</PowerShellExe>
+    <PowerShellExe Condition="'$(PowerShellExe)' == ''">pwsh</PowerShellExe>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,15 +29,15 @@
 
   <Target Name="DownloadAsrModel"
           BeforeTargets="BeforeBuild"
-          Condition="!Exists('$(ModelOutputDir)\tokens.txt')">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)download-model.ps1&quot; -ModelName &quot;$(ModelName)&quot; -ModelUrl &quot;$(ModelUrl)&quot; -CacheDir &quot;$(ModelCacheDir)&quot; -OutDir &quot;$(MSBuildThisFileDirectory)bundled-models&quot;"
+          Condition="'$(SkipAsrModelDownload)' != 'true' And !Exists('$(ModelTokensPath)')">
+    <Exec Command="$(PowerShellExe) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)download-model.ps1&quot; -ModelName &quot;$(ModelName)&quot; -ModelUrl &quot;$(ModelUrl)&quot; -CacheDir &quot;$(ModelCacheDir)&quot; -OutDir &quot;$(BundledModelsRoot)&quot;"
           WorkingDirectory="$(MSBuildThisFileDirectory)" />
 
     <Error Text="Model extraction failed: tokens.txt not found at $(ModelOutputDir)"
-           Condition="!Exists('$(ModelOutputDir)\tokens.txt')" />
+           Condition="!Exists('$(ModelTokensPath)')" />
   </Target>
 
   <Target Name="CleanBundledModels" AfterTargets="Clean">
-    <RemoveDir Directories="$(MSBuildThisFileDirectory)bundled-models" />
+    <RemoveDir Directories="$(BundledModelsRoot)" />
   </Target>
 </Project>
