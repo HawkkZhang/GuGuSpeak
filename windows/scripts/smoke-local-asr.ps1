@@ -16,7 +16,24 @@ if ([string]::IsNullOrWhiteSpace($ModelDir)) {
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet build failed"
     }
-    $ModelDir = Join-Path $RepoRoot "src\GuGuTalk.App\bin\$Configuration\net8.0-windows\$RuntimeIdentifier\models\$ModelName"
+
+    $AppOutputDir = Join-Path $RepoRoot "src\GuGuTalk.App\bin\$Configuration\net8.0-windows\$RuntimeIdentifier"
+    $AppModelDir = Join-Path $AppOutputDir "models\$ModelName"
+    foreach ($RequiredPath in @(
+        (Join-Path $AppModelDir "model.int8.onnx"),
+        (Join-Path $AppModelDir "tokens.txt"),
+        (Join-Path $AppOutputDir "sherpa-onnx.dll"),
+        (Join-Path $AppOutputDir "sherpa-onnx-c-api.dll"),
+        (Join-Path $AppOutputDir "onnxruntime.dll")
+    )) {
+        if (!(Test-Path $RequiredPath)) {
+            throw "Missing expected app output file: $RequiredPath"
+        }
+    }
+
+    # Use the bundled model directory for smoke audio because the app output
+    # intentionally bundles only runtime-required model files, not test_wavs.
+    $ModelDir = Join-Path $RepoRoot "src\GuGuTalk.LocalAsr\bundled-models\$ModelName"
 }
 
 $ModelDir = [System.IO.Path]::GetFullPath($ModelDir)
