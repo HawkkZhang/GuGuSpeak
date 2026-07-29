@@ -1,3 +1,4 @@
+import ApplicationServices
 import AppKit
 import Combine
 import Foundation
@@ -13,6 +14,7 @@ final class HotkeyManager {
 
     private let settings: AppSettings
     private var eventTap: CFMachPort?
+    private var eventTapLocationName: String?
     private var runLoopSource: CFRunLoopSource?
     private var isHoldPressed = false
     private var isTogglePressed = false
@@ -23,53 +25,93 @@ final class HotkeyManager {
         self.settings = settings
     }
 
-    func start() {
-        guard eventTap == nil else {
-            Self.logger.debug("Hotkey monitor start ignored because event tap is already active")
-            return
+    @discardableResult
+    func start() -> Bool {
+        let hasAccessibility = AXIsProcessTrusted()
+        let canListenToEvents = CGPreflightListenEventAccess()
+        let canPostEvents = CGPreflightPostEventAccess()
+        guard hasAccessibility, canListenToEvents, canPostEvents else {
+            Self.logger.error(
+                "Hotkey monitor cannot start yet. accessibility=\(hasAccessibility, privacy: .public) listen=\(canListenToEvents, privacy: .public) post=\(canPostEvents, privacy: .public)"
+            )
+            return false
         }
 
-        let mask = CGEventMask((1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.tapDisabledByTimeout.rawValue) | (1 << CGEventType.tapDisabledByUserInput.rawValue))
-        let unmanagedSelf = Unmanaged.passUnretained(self)
-        eventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: mask,
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+        if eventTap != nil {
+            if isSessionActive || isHoldPressed || isTogglePressed {
+                return keepCurrentTapEnabledDuringActiveSession()
+            }
 
-                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    manager.reenableTap()
-                    return Unmanaged.passUnretained(event)
-                }
+            Self.logger.info("Rebuilding idle hotkey event tap")
+            tearDownEventTap()
+        }
 
-                let shouldSuppress = manager.handle(event: event, type: type)
-                return shouldSuppress ? nil : Unmanaged.passUnretained(event)
-            },
-            userInfo: unmanagedSelf.toOpaque()
+        // macOS sends tap-disabled notifications independently of this mask.
+        let mask = CGEventMask(
+            (1 << CGEventType.keyDown.rawValue)
+                | (1 << CGEventType.keyUp.rawValue)
+                | (1 << CGEventType.flagsChanged.rawValue)
         )
+        let unmanagedSelf = Unmanaged.passUnretained(self)
+        let tapLocations: [(location: CGEventTapLocation, name: String)] = [
+            (.cghidEventTap, "hid"),
+            (.cgSessionEventTap, "session")
+        ]
+        for candidate in tapLocations {
+            guard let tap = CGEvent.tapCreate(
+                tap: candidate.location,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: mask,
+                callback: { _, type, event, refcon in
+                    guard let refcon else { return Unmanaged.passUnretained(event) }
+                    let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
 
-        guard let eventTap else { return }
+                    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                        manager.reenableTap()
+                        return Unmanaged.passUnretained(event)
+                    }
+
+                    let shouldSuppress = manager.handle(event: event, type: type)
+                    return shouldSuppress ? nil : Unmanaged.passUnretained(event)
+                },
+                userInfo: unmanagedSelf.toOpaque()
+            ) else {
+                Self.logger.warning("Unable to create \(candidate.name, privacy: .public) hotkey event tap")
+                continue
+            }
+            eventTap = tap
+            eventTapLocationName = candidate.name
+            break
+        }
+
+        guard let eventTap else {
+            Self.logger.error(
+                "Unable to create hotkey event tap. accessibility=\(AXIsProcessTrusted(), privacy: .public) listen=\(CGPreflightListenEventAccess(), privacy: .public) post=\(CGPreflightPostEventAccess(), privacy: .public)"
+            )
+            return false
+        }
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         self.runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
-        Self.logger.info("Hotkey monitor started. hold=\(self.settings.holdToTalkHotkey.displayName, privacy: .public) toggle=\(self.settings.toggleToTalkHotkey.displayName, privacy: .public)")
+        Self.logger.info("Hotkey monitor started. tap=\(self.eventTapLocationName ?? "unknown", privacy: .public) hold=\(self.settings.holdToTalkHotkey.displayName, privacy: .public) toggle=\(self.settings.toggleToTalkHotkey.displayName, privacy: .public)")
+        return true
     }
 
-    func reloadConfiguration() {
+    @discardableResult
+    func reloadConfiguration() -> Bool {
         let wasHoldPressed = isHoldPressed
         let wasSessionActive = isSessionActive
 
         Self.logger.info("Reloading hotkey configuration. wasSessionActive=\(wasSessionActive, privacy: .public) wasHoldPressed=\(wasHoldPressed, privacy: .public)")
         stop()
-        start()
+        let didStart = start()
 
         if wasSessionActive && wasHoldPressed {
             isHoldPressed = true
         }
+        return didStart
     }
 
     func notifySessionStarted() {
@@ -95,6 +137,23 @@ final class HotkeyManager {
     }
 
     func stop() {
+        tearDownEventTap()
+
+        isHoldPressed = false
+        isTogglePressed = false
+        Self.logger.info("Hotkey monitor stopped")
+    }
+
+    private func reenableTap() {
+        guard let eventTap, CFMachPortIsValid(eventTap) else {
+            Self.logger.error("Hotkey event tap is unavailable")
+            return
+        }
+        Self.logger.warning("Hotkey event tap was disabled by macOS; re-enabling")
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+    }
+
+    private func tearDownEventTap() {
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
             self.runLoopSource = nil
@@ -104,16 +163,7 @@ final class HotkeyManager {
             CFMachPortInvalidate(eventTap)
             self.eventTap = nil
         }
-
-        isHoldPressed = false
-        isTogglePressed = false
-        Self.logger.info("Hotkey monitor stopped")
-    }
-
-    private func reenableTap() {
-        guard let eventTap else { return }
-        Self.logger.warning("Hotkey event tap was disabled by macOS; re-enabling")
-        CGEvent.tapEnable(tap: eventTap, enable: true)
+        eventTapLocationName = nil
     }
 
     private func handle(event: CGEvent, type: CGEventType) -> Bool {
@@ -169,6 +219,9 @@ final class HotkeyManager {
 
             return shouldSuppress
         case .flagsChanged:
+            Self.logger.debug(
+                "Raw modifier event. keyCode=\(keyCode, privacy: .public) flags=\(self.describe(flags), privacy: .public)"
+            )
             // 处理修饰键作为单键的情况
             let modifierKeyMap: [(keyCode: UInt16, flag: NSEvent.ModifierFlags)] = [
                 (63, .function),   // Fn
@@ -219,6 +272,22 @@ final class HotkeyManager {
         default:
             return false
         }
+    }
+
+    private func keepCurrentTapEnabledDuringActiveSession() -> Bool {
+        guard let eventTap, CFMachPortIsValid(eventTap) else {
+            Self.logger.error("Hotkey event tap became invalid during an active session")
+            return false
+        }
+        if !CGEvent.tapIsEnabled(tap: eventTap) {
+            CGEvent.tapEnable(tap: eventTap, enable: true)
+        }
+        guard CGEvent.tapIsEnabled(tap: eventTap) else {
+            Self.logger.error("Hotkey event tap could not be re-enabled during an active session")
+            return false
+        }
+        Self.logger.debug("Keeping current hotkey event tap during active session")
+        return true
     }
 
     private func modifierShortcutIsActive(

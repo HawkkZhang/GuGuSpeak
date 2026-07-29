@@ -511,9 +511,12 @@ final class RecognitionOrchestrator: ObservableObject {
             let targetApp = frontmostApp?.localizedName
             let targetBundleID = frontmostApp?.bundleIdentifier
 
-            if settings.postProcessingEnabled, settings.activePostProcessingPrompt != nil, settings.llmProviderConfig.isConfigured {
+            let requiresLLMProcessing = settings.postProcessingEnabled
+                && settings.activePostProcessingPrompt != nil
+                && settings.llmProviderConfig.isConfigured
+            if requiresLLMProcessing || smartPostProcessor.requiresAsyncPersonalLexiconProcessing {
                 previewState.transcript = finalResult
-                previewState.message = "正在处理文本"
+                previewState.message = requiresLLMProcessing ? "正在处理文本" : "正在匹配个性词"
                 previewState.isPostProcessing = true
 
                 // 捕获需要的值，避免 sending 参数的数据竞争
@@ -568,7 +571,7 @@ final class RecognitionOrchestrator: ObservableObject {
                         }
 
                         // 超时或失败，回退到基础结果
-                        Self.logger.info("LLM post-processing timeout or failed, using basic result")
+                        Self.logger.info("Asynchronous post-processing timeout or failed, using basic result")
                         let processed = self.smartPostProcessor.processRulesOnly(text: textToProcess)
                         self.finalTranscript = processed.isEmpty ? textToProcess : processed
                         self.previewState.isPostProcessing = false
@@ -768,7 +771,7 @@ final class RecognitionOrchestrator: ObservableObject {
             || raw.contains("siri and dictation are disabled")
             || raw.contains("dictation are disabled")
             || raw.contains("系统听写已关闭") {
-            return "旧版 Apple Speech 本地识别被系统听写开关拦截。当前版本已改用 SenseVoice；请确认正在运行新版应用，或先切换到豆包/千问。"
+            return "旧版 Apple Speech 本地识别被系统听写开关拦截。当前版本已改用 sherpa-onnx 流式本地识别；请确认正在运行新版应用，或先切换到豆包/千问。"
         }
         if raw.contains("cancelled") || raw.contains("cancel") {
             return "识别被中断"

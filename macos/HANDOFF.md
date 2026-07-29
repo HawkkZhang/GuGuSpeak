@@ -2,6 +2,99 @@
 
 This file is the first-stop handoff note for switching between Codex, Claude Code, Xcode, and other development tools.
 
+## Fn hotkey permission-cache recovery - 2026-07-29
+
+- The reported Fn instability had two separate failure modes. A temporary 30 ms `CGEventSource.flagsState(.hidSystemState)` fallback falsely released a physically held Fn after about 173 ms, while a newly authorized process could also create an event tap before macOS made ListenEvent access usable.
+- The polling fallback, periodic tap health timer, and unbounded tap retry have been removed. One active `CGEvent` tap remains the only physical-key source.
+- Hotkey startup now requires Accessibility, ListenEvent, and PostEvent access. These are process-level readiness checks backed by the same user-facing Accessibility grant; GuGuTalk still exposes only Microphone and Accessibility and does not request a separate Input Monitoring permission.
+- `HotkeyManager.start()` and configuration reload now return whether the event tap is actually active. If any readiness check or tap creation fails after Accessibility is authorized, the app launches one fresh instance and exits the stale process. The persisted attempt marker is cleared only after a tap starts successfully or Accessibility is revoked, preventing both false recovery and relaunch loops.
+- A later real test found the session tap could receive Command modifier events but still receive no raw Fn event. Idle permission refreshes now rebuild the tap as the stable pre-regression implementation did, while active recording sessions keep their current tap. Workspace wake and session-unlock notifications also trigger a rebuild so a superficially valid tap is not reused after lock/unlock.
+- The production hotkey path prefers one HID-level event tap, falling back to one session-level tap only if HID creation fails. Raw `flagsChanged` events and the selected tap location are logged. It never runs both tap locations together.
+- SwiftPM Debug and Release builds passed. `GuGuTalk-20260729-1352-a52b291.dmg` passed strict code-sign and `hdiutil verify`, then the fresh-install hook moved the previous app/data to `~/.Trash/GuGuTalk-fresh-install-20260729-135235-53235`, reset TCC, installed `/Applications/GuGuTalk.app`, and launched it. Its SHA-256 is `f3c5fefcc5e4af9e1215a459bbf6857f95cafb1aeb924446e9337e14aef91cec`.
+- The installed-package recovery path was reproduced end to end: after the user enabled Accessibility, PID 26705 reported `accessibility=true listen=false post=true`; the app launched one replacement instance, and PID 29831 immediately logged `Hotkey monitor started. hold=Fn toggle=⌥Space`. The attempt marker then cleared. The user verified that physical Fn press/release reliably starts and stops recording in the installed `GuGuTalk-20260729-1352-a52b291.dmg` build.
+- Superseded diagnostic packages `GuGuTalk-20260729-1141-a52b291.dmg`, `GuGuTalk-20260729-1207-a52b291.dmg`, `GuGuTalk-20260729-1215-a52b291.dmg`, `GuGuTalk-20260729-1220-a52b291.dmg`, and `GuGuTalk-20260729-1343-a52b291.dmg` should not be used for further testing.
+
+## Personal-term input focus - 2026-07-23
+
+- The visible personal-term field was larger than its reliably editable hit region. A click near the middle or empty side of the field could leave the settings window focused without making the text field first responder.
+- The field now owns explicit SwiftUI focus state, promotes taps anywhere in its visual rectangle to that focus state, and shows an aqua focus border.
+- Decorative strokes on all settings text fields and text editors now ignore hit testing so they cannot intercept input clicks.
+- SwiftPM Release build passed. `GuGuTalk-20260723-2101-a52b291.dmg` was verified, clean-installed with old data and TCC records moved/reset, signature-checked, and launched. Its SHA-256 is `0722474ff7a25f707f04a5ebb91738bee6b5bbd9b094124bf9b0638dca684c63`.
+- Installed-app verification first reproduced the old failure, then passed three checks on the new build: center click plus typing, page-switch plus typing, and a direct click near the field's right empty edge plus typing. The field became the focused accessibility element each time, and all probe text was cleared afterward without adding a personal term.
+
+## Menu bar window double outline - 2026-07-23
+
+- The menu bar console showed a second large rounded gray outline around the branded content panel.
+- `MenuBarExtra(.window)` already owns the outer window shape, while `MenuBarContentView` also clipped and stroked its root with `DVITheme.panelShape()`. The two shells were both visible around the same content.
+- The root view now keeps its panel background but no longer applies its own outer clip or stroke. Internal status, choice, permission, and action control outlines are unchanged.
+- SwiftPM Release build passed. `GuGuTalk-20260723-1933-a52b291.dmg` was verified, clean-installed with old data and TCC records moved/reset, signature-checked, and launched. Its SHA-256 is `51a73d5219acca1ddf5338c624c7ea1dd4a1f04abb9578a492442ef6d30b0198`.
+- Computer Use confirmed the installed build and its settings window, but the macOS status item is not exposed through the available accessibility tree; the menu bar window still needs a direct visual confirmation from the user.
+
+## Required permissions simplified - 2026-07-23
+
+- GuGuTalk now requires only Microphone and Accessibility. Input Monitoring was removed from the permission model and settings UI.
+- The global hotkey uses an active `CGEvent` tap because configured key events are suppressed. That path already requires Accessibility, which is also required for text insertion, so a separate Input Monitoring onboarding step did not unlock any additional product behavior.
+- `CGPreflightListenEventAccess()` could report usable after Accessibility was granted even when the user had not enabled a separate Input Monitoring entry. This made the old third row appear complete without a user action and was misleading.
+- Hotkey startup is now gated only by Accessibility. Permission readiness and capture startup require Microphone plus Accessibility.
+- SwiftPM Release build passed after the permission removal. Existing unrelated macOS API deprecation warnings remain.
+- `GuGuTalk-20260723-1651-a52b291.dmg` was verified, clean-installed with old data and TCC records moved/reset, signature-checked, and launched. UI inspection confirmed that the permission page now contains only Microphone and Accessibility; navigating from Accessibility opens the correct System Settings pane with a single GuGuTalk entry. Its SHA-256 is `dba63cb9e9a917f2fe799b1c3e71e2ab08977995621614ce44e4a757c00315b1`.
+
+## Single permission prompt flow - 2026-07-23
+
+- The Accessibility action previously requested the macOS system prompt and immediately opened System Settings in the same click. This created overlapping permission flows and could surface repeated dialogs.
+- `PermissionCoordinator` now gates each system prompt to one request per app process. Before the first request, the permission state stays `.notDetermined`; after requesting, it becomes authorized or denied and cannot enqueue the same prompt again during that run.
+- The first button click only requests the system prompt. Its own `打开系统设置` action owns navigation. A later click, after the prompt has already been requested, opens the corresponding System Settings pane directly without requesting another prompt.
+- Accessibility is now correctly marked as an in-app promptable permission, so its first action label is `立即申请` instead of claiming it will navigate directly.
+- Passive permission refreshes remain non-prompting.
+- SwiftPM Release build passed. The fresh-install package must reset TCC so the one-prompt flow can be verified from a genuinely clean state.
+- `GuGuTalk-20260723-1627-a52b291.dmg` was verified, clean-installed with TCC reset, signature-checked, and launched. UI inspection confirmed no prompt on launch, `立即申请` before the first Accessibility request, and `前往设置` immediately afterward. Its SHA-256 is `2223b485f9fc9963aabdb3b9a1c7f5673649cc4023603c3f5e4969adc27de11c`.
+
+## Streaming repetition fixes - 2026-07-23
+
+- Live local recognition could show repeated characters even though `RecognitionOrchestrator` replaces each partial transcript instead of appending it.
+- A synthetic 48 kHz -> 16 kHz conversion reproduced the capture bug: `AVAudioConverter` requested input more than once during a single conversion, and `AudioCaptureEngine` returned the same microphone buffer on every request.
+- `AudioCaptureEngine` now uses a locked one-shot input object. Each microphone buffer is supplied exactly once; later requests in the same conversion return `.noDataNow`, preventing duplicate audio from reaching streaming Paraformer.
+- The repository WAV smoke test bypasses live capture and produced non-duplicated final transcripts, further isolating the issue to the realtime conversion path rather than UI transcript concatenation.
+- User retest still produced an extra repeated character for a phrase such as `现在退出页面的时候`. The older repetition fix was specific to Doubao utterance assembly; new local Paraformer raw partial/final text did not pass through it.
+- `LocalRepetitionNormalizer` now uses `NLTokenizer` word boundaries and only removes narrow cross-token repetition shapes such as `时候 + 候`, `整 + 整个`, and `有 + 有`. It preserves natural word-internal reduplication such as `看看`, `慢慢`, and `刚刚`, as well as legitimate multi-character boundaries such as `上海 + 海事`.
+- The same normalization runs before punctuation for both local partial and final results. It is intentionally local-provider-only and does not apply broad character deduplication to cloud transcripts.
+- Targeted compiled assertions passed for trailing, leading, repeated-run, natural-reduplication, and legitimate-boundary cases. `swift test` still cannot load `XCTest` under Command Line Tools alone; full Xcode is not installed.
+- SwiftPM Release build passed after the fix. Existing unrelated macOS API deprecation warnings remain.
+- `GuGuTalk-20260723-1612-a52b291.dmg` was packaged after both repetition fixes, verified, clean-installed, signature-checked, and launched successfully. Its SHA-256 is `bac27da5b05ef3feb3da644cc24f92d9e264d3d1b577cdd54bdec0ce4fa48c3d`.
+
+## Fresh install packaging hook - 2026-07-23
+
+- `scripts/package-dmg.sh` now runs `scripts/fresh-install-local.sh` after the new DMG has been created, signature-checked, verified, and checksummed. A failed build/package therefore leaves the existing installation untouched.
+- When full Xcode is unavailable, packaging falls back to `scripts/build-swiftpm-app.sh`: it builds Release with SwiftPM, assembles the expected app bundle, adds runtime libraries/icons/verified local models, and signs the result before DMG creation.
+- The hook validates the staged app bundle ID and signature, stops and unregisters legacy/current app names, resets TCC for `com.end.DesktopVoiceInput`, moves installed apps and GuGuTalk user data to a timestamped Trash directory, installs `/Applications/GuGuTalk.app`, registers it, and launches it.
+- Before calling `tccutil`, the hook registers the staged app with Launch Services. Keep this ordering: unregistering the old app first can make `tccutil` reject the bundle ID with OSStatus `-10814`, especially after a prior uninstall.
+- The cleanup covers preferences, Application Support/models, caches, logs, saved state, HTTP/WebKit storage, sandbox leftovers, and both `GuGuTalk.app` and legacy `DesktopVoiceInput.app` locations.
+- Local packaging tasks must use this fresh-install behavior by default. Artifact-only CI can set `GUGUTALK_SKIP_POST_PACKAGE_INSTALL=1`; the install script supports `GUGUTALK_FRESH_INSTALL_DRY_RUN=1` for non-mutating validation.
+- Verified locally on 2026-07-23 without full Xcode: `GuGuTalk-20260723-1339-a52b291.dmg` passed `hdiutil verify` and SHA-256 verification, the old app/data were moved to Trash, TCC was reset, `/Applications/GuGuTalk.app` passed strict deep signature validation, and the installed process remained running. The DMG SHA-256 is `671409675619b4a6ababbe089628309857454a101a61cfff7429e40ca8a3d455`.
+
+## Transient clipboard insertion - 2026-07-23
+
+- Paste-style insertion still snapshots the user's pasteboard, dispatches `Cmd+V`, guards restoration with `changeCount`, and waits `2.0s` before restoring for Web/Electron compatibility.
+- Generated speech text is now written as one pasteboard item with `org.nspasteboard.TransientType`, `org.nspasteboard.AutoGeneratedType`, and `org.nspasteboard.source`. The pasteboard is prepared with `.currentHostOnly` so temporary insertion content is not offered to other Apple devices.
+- These standard markers ask compatible clipboard-history tools not to retain the temporary item. They are not an absolute guarantee because third-party clipboard tools may ignore the convention.
+- Insertion order is unchanged: unknown/Web/Electron targets still prefer paste, while WeChat keeps its Accessibility -> targeted Unicode -> paste fallback strategy.
+
+## Streaming local ASR - 2026-07-22
+
+- Local mode now uses `sherpa-onnx-streaming-paraformer-bilingual-zh-en` with `encoder.int8.onnx` and `decoder.int8.onnx`. It performs real online decoding and emits partial text while the user is speaking.
+- `sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8` is applied to changed partial text at a 250 ms cadence and once unconditionally for final text. English-adjacent full-width punctuation is normalized to ASCII; Chinese punctuation remains full-width.
+- Endpoint detection is disabled. Hold/toggle release remains the only end-of-utterance signal. The provider adds 300 ms leading and 600 ms trailing silence for Paraformer context without using VAD.
+- `scripts/install-local-asr-models.sh` downloads the three Paraformer files and punctuation model separately, verifies fixed SHA-256 digests, and installs both named directories under the user model root or app resource root. `install-sensevoice-model.sh` remains only as a compatibility wrapper.
+- The Xcode phases are now `Install Local ASR Runtime` and `Bundle Local ASR Models`; Debug and Release app bundles receive both model directories under `Contents/Resources/models/`. The model payload is about 298 MiB.
+- `scripts/smoke-local-asr.sh` downloads two small, checksum-pinned official Paraformer WAVs and compiles the real `LocalSpeechProvider` path. It requires non-empty punctuated partials, a punctuated final, and mixed Chinese/English output from `0.wav`.
+- `GUGUTALK_LOCAL_ASR_MODEL_DIR` overrides the ASR directory/root. `GUGUTALK_LOCAL_PUNCTUATION_MODEL_DIR` independently overrides the punctuation directory/root.
+- The Xcode target and Swift package require macOS 15.5, matching bundled ONNX Runtime 1.24.4. Do not lower the target without replacing that runtime.
+- SwiftPM release binaries include `@executable_path/../Frameworks` in `LC_RPATH`; manual app bundles must preserve it or dyld cannot load the bundled sherpa-onnx runtime.
+- Local ad-hoc test bundles must be signed with `scripts/sign-local-app.sh`. It uses a stable explicit designated requirement so TCC permissions survive rebuilds, and does not enable Hardened Runtime because separately ad-hoc-signed binaries have no shared Team ID. Proper certificate-signed Xcode builds should keep Hardened Runtime enabled.
+- The menu bar label loads `MenuBarIcon` through `Bundle.image(forResource:)` and falls back to an SF Symbol. SwiftPM excludes `Assets.xcassets`, so manual bundles may contain raw PNGs without `Assets.car`; using `Image("MenuBarIcon")` makes the status item invisible in that package shape.
+
+The older SenseVoice sections below are retained as migration history and no longer describe the current local provider.
+
 ## Recent Fixes - 2026-06-01
 
 ### Local recognition now uses sherpa-onnx SenseVoice instead of Apple Speech
@@ -17,18 +110,18 @@ This file is the first-stop handoff note for switching between Codex, Claude Cod
   - `sherpa-onnx.xcframework` for headers
   - `libsherpa-onnx-c-api.dylib`
   - `libonnxruntime.1.24.4.dylib`
-- Install the model with `./scripts/install-sensevoice-model.sh`; it extracts to `~/Library/Application Support/GuGuTalk/models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/`.
+- Xcode bundles the model into the built app. `./scripts/install-sensevoice-model.sh` remains available for local smoke tests and user-level overrides under `~/Library/Application Support/GuGuTalk/models/`.
 - `GUGUTALK_LOCAL_ASR_MODEL_DIR` can point the app at another model directory containing `tokens.txt` plus `model.int8.onnx` or `model.onnx`.
 
 **Permissions/UI:**
 - Local mode no longer requires macOS Speech Recognition privacy permission or system Dictation.
-- Required capture permissions are now microphone, accessibility, and input monitoring.
+- The current required permissions are Microphone and Accessibility. Input Monitoring was removed in the later permission simplification described above.
 
 **Verification:**
 - Debug `xcodebuild -project DesktopVoiceInput.xcodeproj -scheme DesktopVoiceInput -configuration Debug -derivedDataPath /tmp/DesktopVoiceInputDerivedData build` passed.
 - `scripts/install-sensevoice-model.sh` installed the int8 model under `~/Library/Application Support/GuGuTalk/models/`.
 - C API, Swift wrapper, and `LocalSpeechProvider` smoke tests decoded bundled `zh.wav` and `en.wav` successfully. Outputs included Chinese punctuation (`开放时间早上9点至下午5点。`) and English text (`The tribal chieftain called for the boy and presented him with 50 pieces of code.`).
-- Build warning remains: bundled ONNX Runtime 1.24.4 declares macOS min 15.5 while the app deployment target is still 14.0. The immediate target test machine is macOS 15.7.3, but revisit this before claiming macOS 14 support for local SenseVoice builds.
+- The deployment target is macOS 15.5, matching bundled ONNX Runtime 1.24.4 and the macOS 15.7.3 problem machine.
 
 ## Recent Fixes - 2026-05-17
 
@@ -575,7 +668,7 @@ This file is the first-stop handoff note for switching between Codex, Claude Cod
 2. **启动时自动弹出权限请求对话框**
    - 应用启动后直接弹出系统辅助功能权限请求
    - 期望：应该先打开设置窗口，让用户主动点击后才请求
-   - 已处理：启动只做静默权限检查；全局热键监听仅在输入监控已授权时启动；缺权限时自动打开设置窗口
+   - 已处理：启动只做静默权限检查；全局热键监听仅在辅助功能已授权时启动；缺权限时自动打开设置窗口
 
 3. **权限检测不准确**
    - 用户在系统设置中授予权限后，应用仍显示"未授权"
@@ -694,9 +787,31 @@ Latest local fix:
 
 ## Known Risks
 
+### Personal lexicon implementation - 2026-07-23
+
+- Settings now accepts one canonical personal term instead of requiring users to enumerate recognition mistakes.
+- Final text from local, Doubao, and Qwen all shares the same correction chain: exact legacy aliases, phonetic candidate retrieval, then local ONNX context scoring.
+- The semantic model cannot generate or freely rewrite text; it only chooses between the recognized span and a configured personal term.
+- `scripts/smoke-personal-lexicon.sh` validates both sides of the decision boundary with `会议/回忆` and also checks mixed-script `GuGuTalk/咕咕 Talk` retrieval.
+- The smoke script reuses semantic resources from `GUGUTALK_SEMANTIC_MODEL_DIR` or the installed app before downloading models, so semantic-only verification does not depend on downloading the ASR files.
+- The semantic model is bundled in the app and adds about 136 MB before DMG compression. Session creation is lazy and happens only when a phonetic candidate exists.
+- Candidate retrieval now skips invalid length windows when a configured term is much longer than the transcript, avoiding a closed-range runtime trap.
+- Verified on 2026-07-23: SwiftPM Release build passed; real-model smoke corrected `明天我们开回忆讨论项目`, preserved `这是我童年的回忆`, and corrected mixed-script `咕咕 Talk`; the installed settings UI successfully added a term, preserved it across a full app quit/relaunch, and removed it again.
+- 2026-07-27: retrieval no longer aligns by canonical character count or raw English spelling. It dynamically builds bounded pronunciation signatures for the user's current small term list, covering Chinese readings, English/CamelCase, spelled letters, digits, common symbols, and mixed-script terms. The prepared-term cache is rebuilt only when the configured term texts change.
+- English words use checksum-pinned `cmusphinx/cmudict` revision `74790861f652b15e4ac49015a90074ad62a27690`; `cmudict.dict` SHA-256 is `81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22` and its license SHA-256 is `bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a`. ARPABET and pinyin are normalized into one phoneme space, with lightweight G2P only for dictionary misses. This is a general pronunciation source, not an embedded list of personal terms.
+- Candidate windows are selected by spoken-token spans and weighted pronunciation edit distance. Overlapping accepted spans prefer the closest pronunciation before semantic score, which prevents surrounding words from being swallowed by a broader replacement.
+- High-confidence formatting-sensitive terms (Latin letters, digits, or symbols) and anchored/long exact Chinese homophones honor the user's explicit spelling directly. Short ambiguous Chinese homophones still use the local masked-language model, so `明天我们开回忆讨论项目` changes to `会议` while `这是我童年的回忆` remains unchanged.
+- `scripts/smoke-personal-lexicon.sh` now verifies end-to-end corrections for `Google Talk -> GuGuTalk`, `扣问 -> Qwen`, `张思思 -> 张偲偲`, `K 八 S -> K8s`, `C 加加 -> C++`, and `诶爱 -> AI`, plus the `Google Chrome` retrieval negative case. The full smoke passed on 2026-07-27.
+- `scripts/smoke-cloud-providers.sh` replays a 16 kHz mono WAV through the current Doubao and Qwen provider sources, reads credentials only from the local GuGuTalk defaults domain, and never prints them. A 2026-07-27 run produced 10 Doubao partials and 23 Qwen partials, then corrected only the final results: `打开咕咕 talk 设置... -> 打开GuGuTalk 设置...` and `打开Google Talk设置... -> 打开GuGuTalk设置...`.
+- Packaged and fresh-installed `dist/dmg/GuGuTalk-20260727-2046-a52b291.dmg` on 2026-07-27. Its SHA-256 sidecar and `hdiutil verify` passed; the installed 498 MiB app passed strict deep code-sign verification and contains checksum-matching semantic model, pinyin, CMUdict, and licenses. The previous app/data are recoverable under `~/.Trash/GuGuTalk-fresh-install-20260727-204705-41777`; TCC was reset, the new app launched from `/Applications`, and its clean permission screen correctly shows only Microphone and Accessibility as pending.
+- This Mac has Command Line Tools but no full Xcode. `swift build -c release`, the real-resource personal-lexicon smoke, and the current-source Doubao/Qwen cloud smoke passed. `swift test` could not import `XCTest` in this toolchain, so no claim is made that the XCTest target ran here.
+- 2026-07-29: after a fresh TCC reset, macOS exposed the three process-level checks at different times. The final packaged reproduction was `AX=true / ListenEvent=false / PostEvent=true` in the authorization-time process; after one relaunch, all hotkey checks passed and the active event tap started immediately.
+- A temporary 30 ms hardware-state polling fallback was rejected after real logs showed a held physical `Fn` could appear pressed for only 173 ms and then produce a false release. The fallback and infinite event-tap retry were removed. GuGuTalk now uses one event source again: the active `CGEvent` tap. Accessibility, ListenEvent, PostEvent, and actual tap startup all participate in the one-time fresh-process recovery. A persisted attempt marker prevents relaunch loops; it resets only after tap startup succeeds or Accessibility is revoked.
+- `GuGuTalk-20260729-1141-a52b291.dmg` was the temporary polling build and should not be used for further testing. Previous app/data from that installation remain recoverable at `~/.Trash/GuGuTalk-fresh-install-20260729-114158-66843`.
+
 - Settings/onboarding architecture now uses a dedicated AppKit settings window. Keep verifying Finder/Launchpad/menu bar entry behavior on packaged builds and different macOS/signing states.
 - The locally signed `/Applications/GuGuTalk.app` is for development testing. It may still be blocked by Gatekeeper when double-clicked because the certificate is self-signed; launching via `/Applications/GuGuTalk.app/Contents/MacOS/DesktopVoiceInput` is currently the most reliable local test path.
-- Do not assume hotkeys are fully stable. Dual hotkey mode still needs testing and polish.
+- Do not add a second physical-key polling source beside the event tap. It creates conflicting press/release boundaries for the Globe/Fn key. The post-authorization auto-relaunch and physical Fn press/release have passed packaged-build testing; dual-hotkey behavior remains a manual regression case.
 - If hold-to-talk is still cut off, inspect logs for `HotkeyManager` release events versus `RecognitionOrchestrator` timeout/provider events. A cutoff without release should now show whether it is provider failure, sendAudio failure, or a new lifecycle bug.
 - Do not let shortcut recording trigger live voice input.
 - Allow voice input inside GuGuTalk's own editable text fields, including prompts and provider configuration fields; block insertion only when the focused GuGuTalk element is not editable.

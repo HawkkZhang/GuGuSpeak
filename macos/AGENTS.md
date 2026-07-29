@@ -57,6 +57,16 @@ Use the packaging script instead of creating DMGs by hand:
 ./scripts/package-dmg.sh
 ```
 
+`package-dmg.sh` runs `scripts/fresh-install-local.sh` after the DMG is created and verified. This hook stops and unregisters old GuGuTalk builds, moves the installed app and local GuGuTalk data to Trash, resets TCC permissions for `com.end.DesktopVoiceInput`, installs the newly packaged app in `/Applications`, and launches it. Packaging tasks for local user testing must keep this default behavior.
+
+When full Xcode is unavailable, `package-dmg.sh` automatically uses `scripts/build-swiftpm-app.sh` to assemble the same signed app shape from the SwiftPM Release executable, bundled runtimes, repository icons, and verified local ASR models.
+
+For artifact-only CI or an explicitly requested package without local installation, opt out deliberately:
+
+```bash
+GUGUTALK_SKIP_POST_PACKAGE_INSTALL=1 ./scripts/package-dmg.sh
+```
+
 Do not put DMGs in the repo root, `Packages/`, Desktop, Downloads, or ad-hoc temporary folders. `dist/dmg/*.dmg` and matching checksum files are local artifacts and must not be committed.
 
 ## Git Workflow
@@ -112,6 +122,7 @@ Provider credentials are entered in the app settings and stored locally on each 
 ## Important UX Rules
 
 - Permission guidance should appear only when useful.
+- Required permissions are microphone and Accessibility only. Global hotkeys share the Accessibility grant; do not add separate Input Monitoring onboarding.
 - Settings should be simple and grouped by task.
 - Recognition mode is a single choice: local, Doubao, or Qwen.
 - Only Doubao and Qwen need provider configuration.

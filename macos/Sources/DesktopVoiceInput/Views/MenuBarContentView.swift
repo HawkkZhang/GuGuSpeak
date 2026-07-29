@@ -39,11 +39,6 @@ struct MenuBarContentView: View {
                         .offset(x: 32, y: -44)
                 }
         )
-        .clipShape(DVITheme.panelShape())
-        .overlay(
-            DVITheme.panelShape()
-                .stroke(DVITheme.separator.opacity(0.26), lineWidth: 1)
-        )
     }
 
     private var brandHeader: some View {

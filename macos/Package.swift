@@ -11,6 +11,9 @@ let sherpaHeaderDir = packageRoot
 let sherpaLibDir = packageRoot
     .appendingPathComponent("ThirdParty/sherpa-onnx/lib")
     .path
+let onnxRuntimeHeaderDir = packageRoot
+    .appendingPathComponent("ThirdParty/onnxruntime/include")
+    .path
 
 let sherpaSwiftSettings: [SwiftSetting] = [
     .unsafeFlags([
@@ -27,6 +30,8 @@ let sherpaLinkerSettings: [LinkerSetting] = [
         "-lonnxruntime.1.24.4",
         "-lc++",
         "-Xlinker", "-rpath",
+        "-Xlinker", "@executable_path/../Frameworks",
+        "-Xlinker", "-rpath",
         "-Xlinker", sherpaLibDir,
     ]),
 ]
@@ -34,18 +39,29 @@ let sherpaLinkerSettings: [LinkerSetting] = [
 let package = Package(
     name: "DesktopVoiceInput",
     platforms: [
-        .macOS(.v14),
+        .macOS("15.5"),
     ],
     targets: [
+        .target(
+            name: "SemanticOnnxBridge",
+            publicHeadersPath: "include",
+            cSettings: [
+                .unsafeFlags(["-I\(onnxRuntimeHeaderDir)"]),
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-L", sherpaLibDir, "-lonnxruntime.1.24.4"]),
+            ]
+        ),
         .executableTarget(
             name: "DesktopVoiceInput",
+            dependencies: ["SemanticOnnxBridge"],
             exclude: ["Assets.xcassets"],
             swiftSettings: sherpaSwiftSettings,
             linkerSettings: sherpaLinkerSettings
         ),
         .testTarget(
             name: "DesktopVoiceInputTests",
-            dependencies: ["DesktopVoiceInput"],
+            dependencies: ["DesktopVoiceInput", "SemanticOnnxBridge"],
             swiftSettings: sherpaSwiftSettings,
             linkerSettings: sherpaLinkerSettings
         ),

@@ -8,13 +8,13 @@ final class PermissionCoordinator: ObservableObject {
     @Published private(set) var microphone: PermissionState = .notDetermined
     @Published private(set) var speechRecognition: PermissionState = .notDetermined
     @Published private(set) var accessibility: PermissionState = .notDetermined
-    @Published private(set) var inputMonitoring: PermissionState = .notDetermined
+
+    private var didRequestAccessibilityPrompt = false
 
     func refreshAll(promptForSystemDialogs: Bool) async {
         microphone = await refreshMicrophone(prompt: promptForSystemDialogs)
         speechRecognition = .authorized
         accessibility = refreshAccessibility(prompt: promptForSystemDialogs)
-        inputMonitoring = refreshInputMonitoring(prompt: promptForSystemDialogs)
     }
 
     func state(for permission: AppPermissionKind) -> PermissionState {
@@ -25,13 +25,11 @@ final class PermissionCoordinator: ObservableObject {
             speechRecognition
         case .accessibility:
             accessibility
-        case .inputMonitoring:
-            inputMonitoring
         }
     }
 
     func missingPermissions(for mode: RecognitionMode) -> [AppPermissionKind] {
-        [.microphone, .accessibility, .inputMonitoring].filter { !state(for: $0).isUsable }
+        [.microphone, .accessibility].filter { !state(for: $0).isUsable }
     }
 
     func requestMissingPermissions(for mode: RecognitionMode) async {
@@ -43,14 +41,12 @@ final class PermissionCoordinator: ObservableObject {
                 speechRecognition = .authorized
             case .accessibility:
                 accessibility = refreshAccessibility(prompt: true)
-            case .inputMonitoring:
-                inputMonitoring = refreshInputMonitoring(prompt: true)
             }
         }
     }
 
     func allRequiredForCaptureReady() -> Bool {
-        microphone.isUsable && accessibility.isUsable && inputMonitoring.isUsable
+        microphone.isUsable && accessibility.isUsable
     }
 
     func refreshMicrophone(prompt: Bool) async -> PermissionState {
@@ -73,24 +69,32 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     func refreshAccessibility(prompt: Bool) -> PermissionState {
-        let trusted = AXIsProcessTrusted()
-
-        if !trusted && prompt {
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
+        if AXIsProcessTrusted() {
+            return .authorized
         }
 
-        return trusted ? .authorized : .denied
+        guard prompt else {
+            return didRequestAccessibilityPrompt ? .denied : .notDetermined
+        }
+        _ = requestAccessibilityPromptIfNeeded()
+        return accessibility
     }
 
-    func refreshInputMonitoring(prompt: Bool) -> PermissionState {
-        let hasAccess = CGPreflightListenEventAccess()
-
-        if !hasAccess && prompt {
-            let granted = CGRequestListenEventAccess()
-            return granted ? .authorized : .denied
+    @discardableResult
+    func requestAccessibilityPromptIfNeeded() -> Bool {
+        if AXIsProcessTrusted() {
+            accessibility = .authorized
+            return false
         }
 
-        return hasAccess ? .authorized : .denied
+        guard !didRequestAccessibilityPrompt else {
+            accessibility = .denied
+            return false
+        }
+
+        didRequestAccessibilityPrompt = true
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        accessibility = AXIsProcessTrustedWithOptions(options) ? .authorized : .denied
+        return true
     }
 }

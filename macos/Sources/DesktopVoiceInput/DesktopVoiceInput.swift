@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -25,10 +26,25 @@ private struct MenuBarLabel: View {
     let appModel: VoiceInputAppModel
 
     var body: some View {
-        Image("MenuBarIcon")
-            .renderingMode(.template)
+        Group {
+            if let icon = Self.bundleIcon {
+                Image(nsImage: icon)
+            } else {
+                Image(systemName: "waveform")
+            }
+        }
+            .accessibilityLabel("GuGuTalk")
             .onAppear {
                 AppDelegate.shared?.registerAppModel(appModel)
             }
     }
+
+    private static let bundleIcon: NSImage? = {
+        guard let image = Bundle.main.image(forResource: "MenuBarIcon")?.copy() as? NSImage else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }()
 }

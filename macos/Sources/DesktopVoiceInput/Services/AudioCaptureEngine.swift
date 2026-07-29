@@ -73,10 +73,9 @@ final class AudioCaptureEngine {
         }
 
         var conversionError: NSError?
-        let sourceBuffer = buffer
+        let input = OneShotAudioConverterInput(buffer: buffer)
         let status = audioConverter.convert(to: convertedBuffer, error: &conversionError) { _, outStatus in
-            outStatus.pointee = .haveData
-            return sourceBuffer
+            input.provide(status: outStatus)
         }
 
         if let conversionError {
@@ -90,6 +89,29 @@ final class AudioCaptureEngine {
         default:
             return nil
         }
+    }
+}
+
+private final class OneShotAudioConverterInput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer: AVAudioPCMBuffer?
+
+    init(buffer: AVAudioPCMBuffer) {
+        self.buffer = buffer
+    }
+
+    func provide(status: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let buffer else {
+            status.pointee = .noDataNow
+            return nil
+        }
+
+        self.buffer = nil
+        status.pointee = .haveData
+        return buffer
     }
 }
 

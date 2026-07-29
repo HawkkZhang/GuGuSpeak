@@ -1,3 +1,4 @@
+import ApplicationServices
 import AppKit
 import Combine
 import Foundation
@@ -6,6 +7,7 @@ import os
 @MainActor
 final class VoiceInputAppModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.end.DesktopVoiceInput", category: "VoiceInputAppModel")
+    private static let permissionRelaunchKey = "hotkeyPermissionRelaunchAttempted"
 
     private enum ActiveTriggerKind: String {
         case holdToTalk
@@ -37,6 +39,7 @@ final class VoiceInputAppModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var activeTriggerKind: ActiveTriggerKind?
     private var isTransitioning = false
+    private var isRelaunchingForHotkeyPermission = false
 
     init() {
         let settings = AppSettings()
@@ -167,6 +170,19 @@ final class VoiceInputAppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        let workspaceNotificationCenter = NSWorkspace.shared.notificationCenter
+        Publishers.Merge(
+            workspaceNotificationCenter.publisher(for: NSWorkspace.didWakeNotification),
+            workspaceNotificationCenter.publisher(for: NSWorkspace.sessionDidBecomeActiveNotification)
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] notification in
+            guard let self else { return }
+            Self.logger.info("Workspace resumed; rebuilding hotkey monitor. notification=\(notification.name.rawValue, privacy: .public)")
+            Task { await self.refreshPermissionsAndUpdateHotkeys(promptForSystemDialogs: false) }
+        }
+        .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: .voiceInputAppReopenRequested)
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -249,18 +265,10 @@ final class VoiceInputAppModel: ObservableObject {
         prepareSettingsWindow(tab: .permissions)
         let state = permissionCoordinator.state(for: permission)
         if permission == .accessibility {
-            _ = permissionCoordinator.refreshAccessibility(prompt: true)
-            openSystemSettings(for: permission)
-            Task {
-                try? await Task.sleep(for: .milliseconds(500))
-                await refreshPermissionsAndUpdateHotkeys(promptForSystemDialogs: false)
+            let didRequestPrompt = permissionCoordinator.requestAccessibilityPromptIfNeeded()
+            if !didRequestPrompt {
+                openSystemSettings(for: permission)
             }
-            return
-        }
-
-        if permission == .inputMonitoring {
-            _ = permissionCoordinator.refreshInputMonitoring(prompt: true)
-            openSystemSettings(for: permission)
             Task {
                 try? await Task.sleep(for: .milliseconds(500))
                 await refreshPermissionsAndUpdateHotkeys(promptForSystemDialogs: false)
@@ -278,8 +286,6 @@ final class VoiceInputAppModel: ObservableObject {
                     _ = await permissionCoordinator.refreshSpeechRecognition(prompt: true)
                 case .accessibility:
                     _ = permissionCoordinator.refreshAccessibility(prompt: true)
-                case .inputMonitoring:
-                    _ = permissionCoordinator.refreshInputMonitoring(prompt: true)
                 }
                 await refreshPermissionsAndUpdateHotkeys(promptForSystemDialogs: false)
                 showSettingsWindow(tab: .permissions)
@@ -317,20 +323,76 @@ final class VoiceInputAppModel: ObservableObject {
         updateHotkeyMonitoring()
     }
 
+    @discardableResult
+    private func relaunchForHotkeyPermissionIfNeeded() -> Bool {
+        let defaults = UserDefaults.standard
+        guard permissionCoordinator.accessibility.isUsable else {
+            defaults.removeObject(forKey: Self.permissionRelaunchKey)
+            return false
+        }
+        guard !isRelaunchingForHotkeyPermission,
+              !defaults.bool(forKey: Self.permissionRelaunchKey) else {
+            Self.logger.error(
+                "Hotkey event tap is still unavailable after permission recovery relaunch. listen=\(CGPreflightListenEventAccess(), privacy: .public) post=\(CGPreflightPostEventAccess(), privacy: .public)"
+            )
+            return false
+        }
+
+        isRelaunchingForHotkeyPermission = true
+        defaults.set(true, forKey: Self.permissionRelaunchKey)
+        defaults.synchronize()
+        hotkeyManager.stop()
+        Self.logger.info(
+            "Relaunching once to refresh hotkey event access. listen=\(CGPreflightListenEventAccess(), privacy: .public) post=\(CGPreflightPostEventAccess(), privacy: .public)"
+        )
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { [weak self] _, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let error {
+                    Self.logger.error("Permission recovery relaunch failed: \(error.localizedDescription, privacy: .public)")
+                    UserDefaults.standard.removeObject(forKey: Self.permissionRelaunchKey)
+                    self.isRelaunchingForHotkeyPermission = false
+                } else {
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+        return true
+    }
+
     private func updateHotkeyMonitoring() {
-        if hotkeyPermissionsReady {
-            Self.logger.debug("Hotkey permissions ready; ensuring monitor is active")
-            hotkeyManager.start()
-        } else {
+        guard permissionCoordinator.accessibility.isUsable else {
+            UserDefaults.standard.removeObject(forKey: Self.permissionRelaunchKey)
             Self.logger.debug("Hotkey permissions missing; stopping monitor")
             hotkeyManager.stop()
+            return
         }
+
+        Self.logger.debug("Accessibility ready; ensuring hotkey event tap is active")
+        guard hotkeyManager.start() else {
+            Self.logger.error("Hotkey event tap did not start; scheduling one permission recovery relaunch")
+            _ = relaunchForHotkeyPermissionIfNeeded()
+            return
+        }
+
+        UserDefaults.standard.removeObject(forKey: Self.permissionRelaunchKey)
     }
 
     private func reloadHotkeysIfReady() {
         if hotkeyPermissionsReady {
             Self.logger.info("Reloading hotkeys after configuration change")
-            hotkeyManager.reloadConfiguration()
+            if hotkeyManager.reloadConfiguration() {
+                UserDefaults.standard.removeObject(forKey: Self.permissionRelaunchKey)
+            } else {
+                _ = relaunchForHotkeyPermissionIfNeeded()
+            }
         } else {
             Self.logger.debug("Hotkey configuration changed while permissions are missing")
             hotkeyManager.stop()
@@ -338,7 +400,9 @@ final class VoiceInputAppModel: ObservableObject {
     }
 
     private var hotkeyPermissionsReady: Bool {
-        permissionCoordinator.inputMonitoring.isUsable && permissionCoordinator.accessibility.isUsable
+        permissionCoordinator.accessibility.isUsable
+            && CGPreflightListenEventAccess()
+            && CGPreflightPostEventAccess()
     }
 
     private func openSettingsWindowForAppEntry() {

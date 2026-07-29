@@ -9,6 +9,7 @@ final class SmartPostProcessor {
     private let llmClient: LLMClient
     private let fallback: TranscriptPostProcessor
     private let hotwordStore: HotwordStore
+    private let personalLexiconCorrector = PersonalLexiconCorrector()
 
     init(settings: AppSettings, hotwordStore: HotwordStore, llmClient: LLMClient = LLMClient()) {
         self.settings = settings
@@ -23,50 +24,44 @@ final class SmartPostProcessor {
         return applyFinalPunctuationRules(to: result)
     }
 
+    var requiresAsyncPersonalLexiconProcessing: Bool {
+        !hotwordStore.isEmpty
+    }
+
     func process(text: String, targetApp: String?, targetBundleID: String?) async -> String {
         var result = fallback.finalize(text)
 
         // 热词模糊替换（规则层，始终生效）
         result = applyHotwordCorrection(to: result)
 
-        if result.isEmpty {
-            return result
-        }
+        guard !result.isEmpty else { return result }
 
-        // LLM 后处理需要开关打开
-        guard settings.postProcessingEnabled else {
-            return applyFinalPunctuationRules(to: result)
-        }
-
-        let pipeline = resolvePipeline(targetApp: targetApp, targetBundleID: targetBundleID)
-
-        // 执行预设的规则层（如果有）
-        if !pipeline.rules.isEmpty {
-            result = PostProcessingConfig.applyRules(pipeline.rules, to: result)
-        }
-
-        // 执行 LLM 层
-        if let prompt = pipeline.llmPrompt, !prompt.isEmpty {
-            let config = settings.llmProviderConfig
-            guard config.isConfigured else {
-                Self.logger.info("LLM not configured, skipping LLM post-processing")
-                return result
+        if settings.postProcessingEnabled {
+            let pipeline = resolvePipeline(targetApp: targetApp, targetBundleID: targetBundleID)
+            if !pipeline.rules.isEmpty {
+                result = PostProcessingConfig.applyRules(pipeline.rules, to: result)
             }
 
-            let systemPrompt = buildSystemPrompt(basePrompt: prompt)
-
-            do {
-                let llmResult = try await llmClient.complete(system: systemPrompt, user: result, config: config)
-                if !llmResult.isEmpty {
-                    result = llmResult
+            if let prompt = pipeline.llmPrompt, !prompt.isEmpty {
+                let config = settings.llmProviderConfig
+                if config.isConfigured {
+                    let systemPrompt = buildSystemPrompt(basePrompt: prompt)
+                    do {
+                        let llmResult = try await llmClient.complete(system: systemPrompt, user: result, config: config)
+                        if !llmResult.isEmpty {
+                            result = llmResult
+                        }
+                    } catch {
+                        Self.logger.error("LLM post-processing failed, using rule-only result. error=\(error.localizedDescription, privacy: .public)")
+                    }
+                } else {
+                    Self.logger.info("LLM not configured, skipping LLM post-processing")
                 }
-            } catch {
-                Self.logger.error("LLM post-processing failed, using rule-only result. error=\(error.localizedDescription, privacy: .public)")
             }
         }
 
-        // 标点选项是最终输出格式，必须在 LLM 之后再次收口，避免模型重新补回句号。
         result = applyHotwordCorrection(to: result)
+        result = await personalLexiconCorrector.correct(result, terms: hotwordStore.terms)
         return applyFinalPunctuationRules(to: result)
     }
 
@@ -84,9 +79,9 @@ final class SmartPostProcessor {
     }
 
     private func buildSystemPrompt(basePrompt: String) -> String {
-        let replacements = hotwordStore.replacements
-        guard !replacements.isEmpty else { return basePrompt }
-        let wordList = replacements.map(\.to).joined(separator: "、")
+        let terms = hotwordStore.terms
+        guard !terms.isEmpty else { return basePrompt }
+        let wordList = terms.map(\.text).joined(separator: "、")
         return basePrompt + "\n\n参考热词表（如果识别结果中有发音相近但拼写不同的词，优先使用热词表中的正确写法）：\(wordList)"
     }
 

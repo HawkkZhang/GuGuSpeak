@@ -1,8 +1,228 @@
 import XCTest
 import AVFoundation
+import AppKit
 @testable import DesktopVoiceInput
 
 final class DesktopVoiceInputTests: XCTestCase {
+    func testPhoneticCandidateFinderFindsChineseHomophone() {
+        let finder = PhoneticCandidateFinder(pinyinData: """
+        U+4F1A: huì  # 会
+        U+8BAE: yì  # 议
+        U+56DE: huí  # 回
+        U+5FC6: yì  # 忆
+        """)
+
+        let candidates = finder.candidates(
+            in: "明天我们开回忆讨论项目",
+            terms: [PersonalTerm(text: "会议")]
+        )
+
+        XCTAssertTrue(candidates.contains { $0.original == "回忆" && $0.replacement == "会议" })
+    }
+
+    func testPhoneticCandidateFinderFindsMixedScriptBrandName() {
+        let finder = PhoneticCandidateFinder(pinyinData: """
+        U+5495: gū  # 咕
+        """)
+
+        let candidates = finder.candidates(
+            in: "打开咕咕 Talk",
+            terms: [PersonalTerm(text: "GuGuTalk")]
+        )
+
+        XCTAssertTrue(candidates.contains { $0.original == "咕咕 Talk" && $0.replacement == "GuGuTalk" })
+    }
+
+    func testPhoneticCandidateFinderFindsEnglishNearPronunciation() {
+        let finder = PhoneticCandidateFinder(
+            pinyinData: "",
+            englishPronunciationData: """
+            google G UW1 G AH0 L
+            gu G UW1
+            talk T AO1 K
+            """
+        )
+
+        let candidates = finder.candidates(
+            in: "打开 Google Talk 设置",
+            terms: [PersonalTerm(text: "GuGuTalk")]
+        )
+
+        XCTAssertTrue(candidates.contains { $0.original == "Google Talk" && $0.replacement == "GuGuTalk" })
+    }
+
+    func testPhoneticCandidateFinderHandlesArbitraryMixedTerms() {
+        let finder = PhoneticCandidateFinder(pinyinData: """
+        U+6263: kòu  # 扣
+        U+95EE: wèn  # 问
+        U+5F20: zhāng  # 张
+        U+601D: sī  # 思
+        U+5072: cāi,sī  # 偲
+        U+516B: bā  # 八
+        U+52A0: jiā  # 加
+        U+8BF6: ēi  # 诶
+        U+7231: ài  # 爱
+        """)
+
+        XCTAssertTrue(finder.candidates(
+            in: "试一下扣问模型",
+            terms: [PersonalTerm(text: "Qwen")]
+        ).contains { $0.original == "扣问" && $0.replacement == "Qwen" })
+        XCTAssertTrue(finder.candidates(
+            in: "联系人张思思",
+            terms: [PersonalTerm(text: "张偲偲")]
+        ).contains { $0.original == "张思思" && $0.replacement == "张偲偲" })
+        XCTAssertTrue(finder.candidates(
+            in: "部署到 K 八 S",
+            terms: [PersonalTerm(text: "K8s")]
+        ).contains { $0.original == "K 八 S" && $0.replacement == "K8s" })
+        XCTAssertTrue(finder.candidates(
+            in: "这个模块用 C 加加写",
+            terms: [PersonalTerm(text: "C++")]
+        ).contains { $0.original == "C 加加" && $0.replacement == "C++" })
+        XCTAssertTrue(finder.candidates(
+            in: "接入诶爱能力",
+            terms: [PersonalTerm(text: "AI")]
+        ).contains { $0.original == "诶爱" && $0.replacement == "AI" })
+        XCTAssertTrue(finder.candidates(
+            in: "接入 Open 诶爱能力",
+            terms: [PersonalTerm(text: "OpenAI")]
+        ).contains { $0.original == "Open 诶爱" && $0.replacement == "OpenAI" })
+    }
+
+    func testPhoneticCandidateFinderRejectsDifferentEnglishTerm() {
+        let finder = PhoneticCandidateFinder(
+            pinyinData: "",
+            englishPronunciationData: """
+            chrome K R OW1 M
+            google G UW1 G AH0 L
+            gu G UW1
+            talk T AO1 K
+            """
+        )
+
+        let candidates = finder.candidates(
+            in: "打开 Google Chrome 设置",
+            terms: [PersonalTerm(text: "GuGuTalk")]
+        )
+
+        XCTAssertFalse(candidates.contains { $0.replacement == "GuGuTalk" })
+    }
+
+    func testPhoneticCandidateFinderSkipsTermLongerThanTranscript() {
+        let finder = PhoneticCandidateFinder(pinyinData: """
+        U+77ED: duǎn  # 短
+        U+8D85: chāo  # 超
+        U+7EA7: jí  # 级
+        U+957F: cháng  # 长
+        U+4E2A: gè  # 个
+        U+6027: xìng  # 性
+        U+8BCD: cí  # 词
+        """)
+
+        let candidates = finder.candidates(
+            in: "短",
+            terms: [PersonalTerm(text: "超级长个性词")]
+        )
+
+        XCTAssertTrue(candidates.isEmpty)
+    }
+
+    @MainActor
+    func testPersonalTermStoreMigratesLegacyReplacements() throws {
+        let suiteName = "GuGuTalkTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacy = [TextReplacement(from: "回忆", to: "会议")]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "textReplacements")
+
+        let store = HotwordStore(defaults: defaults)
+
+        XCTAssertEqual(store.terms.count, 1)
+        XCTAssertEqual(store.terms[0].text, "会议")
+        XCTAssertEqual(store.terms[0].aliases, ["回忆"])
+        XCTAssertEqual(store.applyReplacements(to: "开回忆"), "开会议")
+    }
+
+    func testPersonalLexiconSemanticCorrectionUsesContext() async throws {
+        guard PersonalLexiconModelManager.resolveResources() != nil else {
+            throw XCTSkip("Semantic model resources are not installed")
+        }
+        let corrector = PersonalLexiconCorrector()
+        let terms = [PersonalTerm(text: "会议")]
+
+        let meeting = await corrector.correct("明天我们开回忆讨论项目", terms: terms)
+        let memory = await corrector.correct("这是我童年的回忆", terms: terms)
+
+        XCTAssertEqual(meeting, "明天我们开会议讨论项目")
+        XCTAssertEqual(memory, "这是我童年的回忆")
+    }
+
+    func testLocalRepetitionNormalizerRemovesTrailingBoundaryCharacter() {
+        XCTAssertEqual(
+            LocalRepetitionNormalizer.normalize("现在退出页面的时候候"),
+            "现在退出页面的时候"
+        )
+    }
+
+    func testLocalRepetitionNormalizerRemovesLeadingBoundaryCharacter() {
+        XCTAssertEqual(LocalRepetitionNormalizer.normalize("整整个应用的颜色"), "整个应用的颜色")
+        XCTAssertEqual(LocalRepetitionNormalizer.normalize("整整整个应用的颜色"), "整个应用的颜色")
+        XCTAssertEqual(LocalRepetitionNormalizer.normalize("有有重复"), "有重复")
+    }
+
+    func testLocalRepetitionNormalizerPreservesNaturalReduplication() {
+        XCTAssertEqual(LocalRepetitionNormalizer.normalize("我想看看这个页面"), "我想看看这个页面")
+        XCTAssertEqual(LocalRepetitionNormalizer.normalize("慢慢来，刚刚好"), "慢慢来，刚刚好")
+        XCTAssertEqual(LocalRepetitionNormalizer.normalize("上海海事大学"), "上海海事大学")
+    }
+
+    func testPasteboardInsertionItemMarksGeneratedTextAsTransient() throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("GuGuTalkTests.\(UUID().uuidString)"))
+
+        XCTAssertTrue(
+            PasteboardInsertionItem.write(
+                text: "测试 voice input",
+                sourceBundleIdentifier: "com.example.GuGuTalkTests",
+                to: pasteboard
+            )
+        )
+
+        let item = try XCTUnwrap(pasteboard.pasteboardItems?.first)
+        XCTAssertEqual(item.string(forType: .string), "测试 voice input")
+        XCTAssertTrue(item.types.contains(PasteboardInsertionItem.transientType))
+        XCTAssertTrue(item.types.contains(PasteboardInsertionItem.autoGeneratedType))
+        XCTAssertEqual(
+            item.string(forType: PasteboardInsertionItem.sourceType),
+            "com.example.GuGuTalkTests"
+        )
+    }
+
+    func testLocalPunctuationNormalizerUsesASCIIAfterEnglish() {
+        XCTAssertEqual(
+            LocalPunctuationNormalizer.normalize("How are you？thank you，ok！"),
+            "How are you?thank you,ok!"
+        )
+    }
+
+    func testLocalPunctuationNormalizerPreservesChinesePunctuation() {
+        XCTAssertEqual(
+            LocalPunctuationNormalizer.normalize("你好，今天怎么样？"),
+            "你好，今天怎么样？"
+        )
+    }
+
+    func testLocalPunctuationNormalizerHandlesMixedBoundaries() {
+        XCTAssertEqual(
+            LocalPunctuationNormalizer.normalize("今天用 OpenAI，效果很好。"),
+            "今天用 OpenAI,效果很好。"
+        )
+    }
+
+    func testLocalPunctuationNormalizerHandlesEmptyText() {
+        XCTAssertEqual(LocalPunctuationNormalizer.normalize(""), "")
+    }
+
     func testPostProcessorDoesNotAddTerminalPunctuation() {
         let processor = TranscriptPostProcessor()
         XCTAssertEqual(processor.finalize("你好 今天过得怎么样"), "你好今天过得怎么样")

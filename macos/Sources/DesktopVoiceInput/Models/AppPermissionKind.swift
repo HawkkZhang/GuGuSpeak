@@ -4,7 +4,6 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
     case microphone
     case speechRecognition
     case accessibility
-    case inputMonitoring
 
     var id: String { rawValue }
 
@@ -16,8 +15,6 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
             "语音识别"
         case .accessibility:
             "辅助功能"
-        case .inputMonitoring:
-            "输入监控"
         }
     }
 
@@ -26,11 +23,9 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
         case .microphone:
             "采集说话声音。未授权时无法录音。"
         case .speechRecognition:
-            "历史 Apple Speech 本地识别权限。当前 SenseVoice 本地模式不再需要。"
+            "历史 Apple Speech 本地识别权限。当前流式本地模式不再需要。"
         case .accessibility:
             "把识别结果写回当前输入框。未授权时只能预览。"
-        case .inputMonitoring:
-            "监听全局快捷键。未授权时快捷键可能不生效。"
         }
     }
 
@@ -52,11 +47,6 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
                 "x-apple.systempreferences:com.apple.preference.security?PrivacyAccessibilityServicesType"
             ]
-        case .inputMonitoring:
-            [
-                "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ListenEvent",
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
-            ]
         }
     }
 
@@ -70,9 +60,9 @@ enum AppPermissionKind: String, CaseIterable, Identifiable {
 
     var canPromptInApp: Bool {
         switch self {
-        case .microphone, .inputMonitoring:
+        case .microphone, .accessibility:
             true
-        case .speechRecognition, .accessibility:
+        case .speechRecognition:
             false
         }
     }

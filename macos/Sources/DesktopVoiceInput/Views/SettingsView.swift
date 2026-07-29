@@ -6,13 +6,13 @@ struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .general
     @State private var holdHotkeyFeedback: HotkeyValidationIssue?
     @State private var toggleHotkeyFeedback: HotkeyValidationIssue?
-    @State private var replacementFrom: String = ""
-    @State private var replacementTo: String = ""
+    @State private var personalTerm: String = ""
     @State private var isDoubaoConfigExpanded = false
     @State private var isQwenConfigExpanded = false
     @State private var isAddingCustomMode = false
     @State private var newModeName: String = ""
     @State private var newModePrompt: String = ""
+    @FocusState private var isPersonalTermFocused: Bool
     @Namespace private var sidebarAnimation
 
     private let ready = DVITheme.ready
@@ -124,6 +124,8 @@ struct SettingsView: View {
             .foregroundStyle(selectedTab == tab ? DVITheme.selectedInk : DVITheme.ink)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .background {
                 if selectedTab == tab {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -264,27 +266,30 @@ struct SettingsView: View {
                 )
             }
 
-            SectionHeader("文本替换")
+            SectionHeader("个性词")
             SettingsPanel {
                 HStack(spacing: 8) {
-                    TextField("识别结果", text: $replacementFrom)
+                    TextField("输入正确写法", text: $personalTerm)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
+                        .focused($isPersonalTermFocused)
                         .background(DVITheme.controlElevated, in: DVITheme.controlShape())
-                        .overlay(DVITheme.controlShape().stroke(DVITheme.separator.opacity(0.28), lineWidth: 1))
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 11))
-                        .foregroundStyle(DVITheme.secondaryInk)
-                    TextField("替换为", text: $replacementTo)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(DVITheme.controlElevated, in: DVITheme.controlShape())
-                        .overlay(DVITheme.controlShape().stroke(DVITheme.separator.opacity(0.28), lineWidth: 1))
-                    Button { addReplacement() } label: {
+                        .overlay(
+                            DVITheme.controlShape()
+                                .stroke(
+                                    isPersonalTermFocused ? DVITheme.accent : DVITheme.separator.opacity(0.28),
+                                    lineWidth: isPersonalTermFocused ? 1.5 : 1
+                                )
+                                .allowsHitTesting(false)
+                        )
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(
+                            TapGesture().onEnded { isPersonalTermFocused = true }
+                        )
+                        .onSubmit(addPersonalTerm)
+                    Button(action: addPersonalTerm) {
                         Text("添加")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(DVITheme.selectedInk)
@@ -293,37 +298,27 @@ struct SettingsView: View {
                             .background(DVITheme.accent, in: DVITheme.controlShape())
                     }
                     .buttonStyle(.plain)
-                        .disabled(replacementFrom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                 replacementTo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(personalTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
-                if !appModel.hotwordStore.replacements.isEmpty {
+                if !appModel.hotwordStore.terms.isEmpty {
                     Divider()
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(appModel.hotwordStore.replacements) { r in
+                        ForEach(appModel.hotwordStore.terms) { term in
                             HStack(spacing: 8) {
-                                Text(r.from)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(DVITheme.secondaryInk)
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(DVITheme.tertiaryInk)
-                                Text(r.to)
+                                Text(term.text)
                                     .font(.system(size: 12, weight: .medium))
                                 Spacer()
-                                Button { appModel.hotwordStore.remove(r.from) } label: {
-                                    Image(systemName: "xmark").font(.system(size: 10))
+                                Button { appModel.hotwordStore.removeTerm(id: term.id) } label: {
+                                    Image(systemName: "trash").font(.system(size: 11))
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundStyle(DVITheme.tertiaryInk)
+                                .help("删除个性词")
                             }
                             .padding(.vertical, 4)
                         }
                     }
-                } else {
-                    Text("将识别结果中的特定词替换为正确写法")
-                        .font(.system(size: 12))
-                        .foregroundStyle(DVITheme.secondaryInk)
                 }
             }
 
@@ -412,7 +407,11 @@ struct SettingsView: View {
                             .scrollContentBackground(.hidden)
                             .padding(6)
                             .background(DVITheme.controlElevated, in: DVITheme.controlShape())
-                            .overlay(DVITheme.controlShape().stroke(DVITheme.separator.opacity(0.3), lineWidth: 1))
+                            .overlay(
+                                DVITheme.controlShape()
+                                    .stroke(DVITheme.separator.opacity(0.3), lineWidth: 1)
+                                    .allowsHitTesting(false)
+                            )
                         }
                     }
 
@@ -426,14 +425,22 @@ struct SettingsView: View {
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 8)
                                 .background(DVITheme.controlElevated, in: DVITheme.controlShape())
-                                .overlay(DVITheme.controlShape().stroke(DVITheme.separator.opacity(0.28), lineWidth: 1))
+                                .overlay(
+                                    DVITheme.controlShape()
+                                        .stroke(DVITheme.separator.opacity(0.28), lineWidth: 1)
+                                        .allowsHitTesting(false)
+                                )
                             TextEditor(text: $newModePrompt)
                                 .font(.system(size: 12))
                                 .frame(height: 60)
                                 .scrollContentBackground(.hidden)
                                 .padding(6)
                                 .background(DVITheme.controlElevated, in: DVITheme.controlShape())
-                                .overlay(DVITheme.controlShape().stroke(DVITheme.separator.opacity(0.3), lineWidth: 1))
+                                .overlay(
+                                    DVITheme.controlShape()
+                                        .stroke(DVITheme.separator.opacity(0.3), lineWidth: 1)
+                                        .allowsHitTesting(false)
+                                )
                             HStack {
                                 Button {
                                     let name = newModeName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -524,11 +531,11 @@ struct SettingsView: View {
 
     // MARK: - Helpers
 
-    private func addReplacement() {
-        let f = replacementFrom.trimmingCharacters(in: .whitespacesAndNewlines)
-        let t = replacementTo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !f.isEmpty, !t.isEmpty else { return }
-        appModel.hotwordStore.add(from: f, to: t); replacementFrom = ""; replacementTo = ""
+    private func addPersonalTerm() {
+        let value = personalTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        appModel.hotwordStore.addTerm(value)
+        personalTerm = ""
     }
 
     private var isCurrentProviderConfigured: Bool {
@@ -699,7 +706,11 @@ struct SettingsView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(DVITheme.controlElevated, in: DVITheme.controlShape())
-                .overlay(DVITheme.controlShape().stroke(DVITheme.separator.opacity(0.28), lineWidth: 1))
+                .overlay(
+                    DVITheme.controlShape()
+                        .stroke(DVITheme.separator.opacity(0.28), lineWidth: 1)
+                        .allowsHitTesting(false)
+                )
         }
     }
 
@@ -732,7 +743,7 @@ struct SettingsView: View {
     private func providerStatusText(mode: RecognitionMode, isConfigured: Bool) -> String {
         switch mode {
         case .local:
-            return "本地 SenseVoice 模型"
+            return "本地流式中英模型"
         case .doubao:
             return isConfigured ? "豆包参数已就绪" : "需要填写豆包参数"
         case .qwen:
