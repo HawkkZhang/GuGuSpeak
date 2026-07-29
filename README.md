@@ -6,15 +6,15 @@
 
 | 平台 | 技术栈 | 目录 | 状态 |
 |------|--------|------|------|
-| macOS | Swift 6 + SwiftUI | [`macos/`](macos/) | 已发布 |
+| macOS 15.5+ | Swift 6 + SwiftUI | [`macos/`](macos/) | 已发布 |
 | Windows | C# + WPF (.NET 8) | [`windows/`](windows/) | 开发中 |
 
 ## 功能
 
-- 多种识别引擎：本地离线 / 豆包 / 千问
+- 多种识别引擎：本地真流式中英识别 / 豆包 / 千问
 - 灵活热键：按住说话 + 切换模式
 - 智能文字插入：自动适配目标应用
-- 后处理：热词替换 + LLM 优化 + 标点控制
+- 后处理：个性词（本地拼音召回 + 语义评分）+ LLM 优化 + 标点控制
 - 系统常驻：菜单栏 (macOS) / 系统托盘 (Windows)
 
 ## 快速开始
@@ -23,9 +23,10 @@
 
 ```bash
 cd macos
-./scripts/install-sensevoice-model.sh
 xcodebuild -project DesktopVoiceInput.xcodeproj -scheme DesktopVoiceInput build
 ```
+
+macOS 首次构建会下载 sherpa-onnx 运行库、流式 Paraformer 中英 int8 模型、CT-Transformer 中英标点模型和多语种个性词语义模型；模型会直接打进应用资源，安装后无需额外下载。
 
 ### Windows
 
