@@ -4,10 +4,14 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="GuGuTalk.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="NAudio" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="FlaUI.Core" />
     <PackageReference Include="FlaUI.UIA3" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>

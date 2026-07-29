@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Threading.Channels;
 using GuGuTalk.Core;
 using GuGuTalk.Core.Models;
+using GuGuTalk.Core.Services;
 using Serilog;
 using SherpaOnnx;
 
@@ -9,22 +11,29 @@ namespace GuGuTalk.LocalAsr;
 public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
 {
     private static readonly ILogger Logger = Log.ForContext<SherpaOnnxProvider>();
+    private static readonly float[] LeadingPadding = new float[16000 * 3 / 10];
+    private static readonly float[] TrailingPadding = new float[16000 * 6 / 10];
+    private const double PartialPunctuationIntervalSeconds = 0.25;
 
     private readonly Channel<TranscriptEvent> _channel = Channel.CreateUnbounded<TranscriptEvent>();
     private readonly object _recognizerLock = new();
 
-    // SenseVoice is an offline model. Keep the recognizer cached, then decode
-    // the held utterance once the user releases the hotkey.
-    private OfflineRecognizer? _recognizer;
-    private MemoryStream? _sessionPcm;
+    private OnlineRecognizer? _recognizer;
+    private OfflinePunctuation? _punctuation;
+    private OnlineStream? _stream;
     private int _sessionSampleRate = 16000;
+    private bool _sessionOpen;
+    private bool _acceptsAudio;
     private bool _hasTerminated;
     private bool _disposed;
     private int _chunksReceived;
+    private int _audioByteCount;
     private double _audioLevelSum;
+    private int _revision;
+    private string _lastPartialRawText = string.Empty;
+    private string _lastPartialText = string.Empty;
+    private long _lastPartialTimestamp;
 
-    // Debug: dump exactly the audio sent to sherpa-onnx so we can listen to it
-    // and confirm whether the audio pipeline corrupts speech or not.
     private FileStream? _debugWavStream;
     private string? _debugWavPath;
     private int _debugSampleCount;
@@ -33,8 +42,8 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     public ChannelReader<TranscriptEvent> Events => _channel.Reader;
 
     /// <summary>
-    /// Loads the recognizer in the background so the first hotkey press does not
-    /// wait for ONNX model initialization. Safe to call multiple times.
+    /// Loads both CPU models in the background so the first hotkey press only
+    /// needs to create an online stream. Safe to call multiple times.
     /// </summary>
     public void Prewarm()
     {
@@ -44,20 +53,14 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
             {
                 lock (_recognizerLock)
                 {
-                    if (_disposed || _recognizer is not null) return;
-                    var config = new RecognitionConfig(
-                        LanguageCode: "zh-CN", SampleRate: 16000,
-                        Mode: RecognitionMode.Local, PartialResultsEnabled: false,
-                        Endpointing: EndpointingPolicy.Manual,
-                        DoubaoCredentials: new DoubaoCredentials("", "", "", ""),
-                        QwenCredentials: new QwenCredentials("", "", ""));
-                    _recognizer = LoadRecognizer(config);
+                    if (_disposed || (_recognizer is not null && _punctuation is not null)) return;
+                    EnsureRuntimeLoadedLocked(16000);
                 }
-                Logger.Information("SenseVoice recognizer prewarmed");
+                Logger.Information("Streaming Paraformer and punctuation models prewarmed");
             }
             catch (Exception ex)
             {
-                Logger.Warning(ex, "SenseVoice recognizer prewarm failed (will retry on first use)");
+                Logger.Warning(ex, "Local streaming ASR prewarm failed (will retry on first use)");
             }
         });
     }
@@ -70,20 +73,30 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
         {
             lock (_recognizerLock)
             {
-                if (_disposed) return;
-                _recognizer ??= LoadRecognizer(config);
+                if (_disposed) throw new ObjectDisposedException(nameof(SherpaOnnxProvider));
 
-                _sessionPcm?.Dispose();
-                _sessionPcm = new MemoryStream();
                 _sessionSampleRate = (int)config.SampleRate;
+                EnsureRuntimeLoadedLocked(_sessionSampleRate);
+                DisposeStreamLocked();
+                _stream = _recognizer!.CreateStream();
+                _stream.AcceptWaveform(_sessionSampleRate, LeadingPadding);
+
+                _sessionOpen = true;
+                _acceptsAudio = true;
                 _hasTerminated = false;
                 _chunksReceived = 0;
+                _audioByteCount = 0;
                 _audioLevelSum = 0;
-                OpenDebugWav();
+                _revision = 0;
+                _lastPartialRawText = string.Empty;
+                _lastPartialText = string.Empty;
+                _lastPartialTimestamp = 0;
+                OpenDebugWavLocked();
+
+                _channel.Writer.TryWrite(new TranscriptEvent.SessionStarted(Mode));
             }
 
-            _channel.Writer.TryWrite(new TranscriptEvent.SessionStarted(Mode));
-            Logger.Information("Local SenseVoice ASR session ready (recognizer cached)");
+            Logger.Information("Local streaming ASR session ready (models cached)");
         }, ct);
     }
 
@@ -91,95 +104,120 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     {
         if (_disposed) return Task.CompletedTask;
 
-        lock (_recognizerLock)
+        return Task.Run(() =>
         {
-            if (_recognizer is null || _sessionPcm is null) return Task.CompletedTask;
+            if (ct.IsCancellationRequested) return;
 
-            _sessionPcm.Write(chunk.PcmData, 0, chunk.PcmData.Length);
-            _sessionSampleRate = (int)chunk.SampleRate;
-            _chunksReceived++;
-            _audioLevelSum += chunk.AudioLevel;
-            WriteDebugWav(chunk.PcmData);
-        }
+            lock (_recognizerLock)
+            {
+                if (_disposed || !_sessionOpen || !_acceptsAudio
+                    || _recognizer is null || _punctuation is null || _stream is null)
+                {
+                    return;
+                }
 
-        return Task.CompletedTask;
+                _sessionSampleRate = (int)chunk.SampleRate;
+                _chunksReceived++;
+                _audioByteCount += chunk.PcmData.Length;
+                _audioLevelSum += chunk.AudioLevel;
+                WriteDebugWavLocked(chunk.PcmData);
+
+                var samples = ConvertPcm16ToFloat(chunk.PcmData);
+                if (samples.Length == 0) return;
+
+                _stream.AcceptWaveform(_sessionSampleRate, samples);
+                DrainRecognizerLocked();
+
+                var rawText = _recognizer.GetResult(_stream).Text.Trim();
+                if (!ShouldRunPartialPunctuationLocked(rawText)) return;
+
+                var punctuatedText = AddPunctuationLocked(rawText);
+                _lastPartialRawText = rawText;
+                _lastPartialTimestamp = Stopwatch.GetTimestamp();
+                if (string.IsNullOrWhiteSpace(punctuatedText) || punctuatedText == _lastPartialText) return;
+
+                _lastPartialText = punctuatedText;
+                _revision++;
+                _channel.Writer.TryWrite(new TranscriptEvent.PartialTextUpdated(punctuatedText, _revision));
+            }
+        });
     }
 
     public Task FinishAudioAsync(CancellationToken ct = default)
     {
         if (_disposed)
         {
-            EmitSessionEndedIfNeeded();
+            lock (_recognizerLock)
+            {
+                EmitSessionEndedIfNeededLocked();
+            }
             return Task.CompletedTask;
         }
 
         return Task.Run(() =>
         {
-            try
+            lock (_recognizerLock)
             {
-                string finalText;
-                int byteCount;
-                double avgLevel;
+                if (!_sessionOpen || _hasTerminated) return;
+                _acceptsAudio = false;
 
-                lock (_recognizerLock)
+                try
                 {
-                    if (_recognizer is null || _sessionPcm is null)
+                    if (_recognizer is null || _punctuation is null || _stream is null)
                     {
                         _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("本地识别模型尚未就绪"));
                         return;
                     }
 
-                    var pcm = _sessionPcm.ToArray();
-                    _sessionPcm.Dispose();
-                    _sessionPcm = null;
-
-                    byteCount = pcm.Length;
-                    avgLevel = _chunksReceived > 0 ? _audioLevelSum / _chunksReceived : 0;
-                    if (pcm.Length == 0)
+                    var averageLevel = _chunksReceived > 0 ? _audioLevelSum / _chunksReceived : 0;
+                    if (_audioByteCount == 0)
                     {
                         _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("没有收到有效音频"));
                         return;
                     }
 
-                    var samples = ConvertPcm16ToFloat(pcm);
-                    var stream = _recognizer.CreateStream();
-                    stream.AcceptWaveform(_sessionSampleRate, samples);
-                    _recognizer.Decode(new List<OfflineStream> { stream });
-                    finalText = stream.Result.Text.Trim();
-                }
+                    _stream.AcceptWaveform(_sessionSampleRate, TrailingPadding);
+                    _stream.InputFinished();
+                    DrainRecognizerLocked();
 
-                Logger.Information("SenseVoice finish: bytes={Bytes} chunks={Chunks} avgLevel={Avg:F4} final='{Final}'",
-                    byteCount, _chunksReceived, avgLevel, finalText);
+                    var rawText = _recognizer.GetResult(_stream).Text.Trim();
+                    var finalText = string.IsNullOrWhiteSpace(rawText)
+                        ? string.Empty
+                        : AddPunctuationLocked(rawText);
 
-                if (!string.IsNullOrWhiteSpace(finalText))
-                {
-                    _channel.Writer.TryWrite(new TranscriptEvent.FinalTextReady(finalText));
+                    Logger.Information(
+                        "Streaming ASR finish: bytes={Bytes} chunks={Chunks} avgLevel={Avg:F4} final='{Final}'",
+                        _audioByteCount, _chunksReceived, averageLevel, finalText);
+
+                    if (!string.IsNullOrWhiteSpace(finalText))
+                    {
+                        _channel.Writer.TryWrite(new TranscriptEvent.FinalTextReady(finalText));
+                    }
+                    else
+                    {
+                        _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("说话时间太短，没有识别到内容"));
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed("说话时间太短，没有识别到内容"));
+                    Logger.Error(ex, "Local streaming recognition failed");
+                    _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed($"本地识别失败：{ex.Message}"));
+                }
+                finally
+                {
+                    DisposeStreamLocked();
+                    EmitSessionEndedIfNeededLocked();
                 }
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "SenseVoice local recognition failed");
-                _channel.Writer.TryWrite(new TranscriptEvent.SessionFailed($"本地识别失败：{ex.Message}"));
-            }
-            finally
-            {
-                EmitSessionEndedIfNeeded();
-            }
-        }, ct);
+        });
     }
 
     public Task CancelAsync()
     {
-        EmitSessionEndedIfNeeded();
         lock (_recognizerLock)
         {
-            _sessionPcm?.Dispose();
-            _sessionPcm = null;
-            CloseDebugWav();
+            DisposeStreamLocked();
+            EmitSessionEndedIfNeededLocked();
         }
         return Task.CompletedTask;
     }
@@ -187,65 +225,127 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         if (_disposed) return ValueTask.CompletedTask;
-        _disposed = true;
+
         lock (_recognizerLock)
         {
-            _sessionPcm?.Dispose();
-            _sessionPcm = null;
+            if (_disposed) return ValueTask.CompletedTask;
+            _disposed = true;
+            DisposeStreamLocked();
+            _punctuation?.Dispose();
+            _punctuation = null;
             _recognizer?.Dispose();
             _recognizer = null;
-            CloseDebugWav();
+            CloseDebugWavLocked();
         }
         return ValueTask.CompletedTask;
     }
 
-    private static OfflineRecognizer LoadRecognizer(RecognitionConfig config)
+    private void EnsureRuntimeLoadedLocked(int sampleRate)
     {
+        if (_recognizer is not null && _punctuation is not null) return;
+
         var tokensPath = ModelManager.GetTokensPath()
             ?? throw new InvalidOperationException("本地识别模型 tokens.txt 未找到。请检查安装目录或用户模型目录。");
-        var modelPath = ModelManager.GetModelPath()
-            ?? throw new InvalidOperationException("SenseVoice model.int8.onnx 未找到。请检查安装目录或用户模型目录。");
+        var encoderPath = ModelManager.GetEncoderPath()
+            ?? throw new InvalidOperationException("Paraformer encoder.int8.onnx 未找到。请检查安装目录或用户模型目录。");
+        var decoderPath = ModelManager.GetDecoderPath()
+            ?? throw new InvalidOperationException("Paraformer decoder.int8.onnx 未找到。请检查安装目录或用户模型目录。");
+        var punctuationPath = ModelManager.GetPunctuationModelPath()
+            ?? throw new InvalidOperationException("CT-Transformer model.int8.onnx 未找到。请检查安装目录或用户模型目录。");
 
-        var modelDir = Path.GetDirectoryName(modelPath)!;
-        Logger.Information("Loading SenseVoice local ASR model from: {Dir}", modelDir);
+        Logger.Information(
+            "Loading local streaming ASR models: asr={AsrDir} punctuation={PunctuationDir}",
+            Path.GetDirectoryName(encoderPath), Path.GetDirectoryName(punctuationPath));
 
-        var recognizerConfig = new OfflineRecognizerConfig
+        var recognizerConfig = new OnlineRecognizerConfig
         {
-            DecodingMethod = "greedy_search"
+            DecodingMethod = "greedy_search",
+            EnableEndpoint = 0
         };
-        recognizerConfig.FeatConfig.SampleRate = (int)config.SampleRate;
+        recognizerConfig.FeatConfig.SampleRate = sampleRate;
         recognizerConfig.FeatConfig.FeatureDim = 80;
         recognizerConfig.ModelConfig.Tokens = tokensPath;
-        recognizerConfig.ModelConfig.NumThreads = 4;
+        recognizerConfig.ModelConfig.NumThreads = 2;
         recognizerConfig.ModelConfig.Provider = "cpu";
         recognizerConfig.ModelConfig.Debug = 0;
-        recognizerConfig.ModelConfig.SenseVoice.Model = modelPath;
-        recognizerConfig.ModelConfig.SenseVoice.Language = "auto";
-        recognizerConfig.ModelConfig.SenseVoice.UseInverseTextNormalization = 1;
+        recognizerConfig.ModelConfig.Paraformer.Encoder = encoderPath;
+        recognizerConfig.ModelConfig.Paraformer.Decoder = decoderPath;
 
-        return new OfflineRecognizer(recognizerConfig);
+        var punctuationConfig = new OfflinePunctuationConfig();
+        punctuationConfig.Model.CtTransformer = punctuationPath;
+        punctuationConfig.Model.NumThreads = 1;
+        punctuationConfig.Model.Provider = "cpu";
+        punctuationConfig.Model.Debug = 0;
+
+        var recognizer = new OnlineRecognizer(recognizerConfig);
+        try
+        {
+            var punctuation = new OfflinePunctuation(punctuationConfig);
+            _recognizer = recognizer;
+            _punctuation = punctuation;
+        }
+        catch
+        {
+            recognizer.Dispose();
+            throw;
+        }
     }
 
-    private void EmitSessionEndedIfNeeded()
+    private void DrainRecognizerLocked()
     {
-        if (_hasTerminated) return;
+        if (_recognizer is null || _stream is null) return;
+        while (_recognizer.IsReady(_stream))
+        {
+            _recognizer.Decode(_stream);
+        }
+    }
+
+    private bool ShouldRunPartialPunctuationLocked(string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText) || rawText == _lastPartialRawText) return false;
+        if (_lastPartialTimestamp == 0) return true;
+
+        var elapsedSeconds = (Stopwatch.GetTimestamp() - _lastPartialTimestamp)
+                             / (double)Stopwatch.Frequency;
+        return elapsedSeconds >= PartialPunctuationIntervalSeconds;
+    }
+
+    private string AddPunctuationLocked(string rawText)
+    {
+        var punctuated = _punctuation?.AddPunct(rawText).Trim();
+        if (string.IsNullOrWhiteSpace(punctuated)) punctuated = rawText;
+        return PunctuationTextNormalizer.NormalizeForMixedChineseEnglish(punctuated);
+    }
+
+    private void DisposeStreamLocked()
+    {
+        _stream?.Dispose();
+        _stream = null;
+        _acceptsAudio = false;
+    }
+
+    private void EmitSessionEndedIfNeededLocked()
+    {
+        if (!_sessionOpen || _hasTerminated) return;
+        _sessionOpen = false;
+        _acceptsAudio = false;
         _hasTerminated = true;
-        CloseDebugWav();
+        CloseDebugWavLocked();
         _channel.Writer.TryWrite(new TranscriptEvent.SessionEnded());
     }
 
-    private void OpenDebugWav()
+    private void OpenDebugWavLocked()
     {
+        CloseDebugWavLocked();
         try
         {
-            var dir = Path.Combine(
+            var directory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "GuGuTalk", "debug");
-            Directory.CreateDirectory(dir);
-            _debugWavPath = Path.Combine(dir, $"session-{DateTime.Now:yyyyMMdd-HHmmss-fff}.wav");
+            Directory.CreateDirectory(directory);
+            _debugWavPath = Path.Combine(directory, $"session-{DateTime.Now:yyyyMMdd-HHmmss-fff}.wav");
             _debugWavStream = new FileStream(_debugWavPath, FileMode.Create, FileAccess.Write);
             _debugSampleCount = 0;
-            // Reserve 44 bytes for the WAV header; we'll backfill on close.
             _debugWavStream.Write(new byte[44], 0, 44);
         }
         catch (Exception ex)
@@ -255,7 +355,7 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
         }
     }
 
-    private void WriteDebugWav(byte[] pcm16)
+    private void WriteDebugWavLocked(byte[] pcm16)
     {
         if (_debugWavStream is null) return;
         try
@@ -269,32 +369,27 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
         }
     }
 
-    private void CloseDebugWav()
+    private void CloseDebugWavLocked()
     {
         if (_debugWavStream is null) return;
         try
         {
-            // Build WAV header (16 kHz mono PCM16) and seek back to write it.
-            int byteRate = 16000 * 2;
-            int dataSize = _debugSampleCount * 2;
-            int riffSize = 36 + dataSize;
+            var byteRate = _sessionSampleRate * 2;
+            var dataSize = _debugSampleCount * 2;
+            var riffSize = 36 + dataSize;
 
-            byte[] header = new byte[44];
-            // "RIFF"
+            var header = new byte[44];
             header[0] = (byte)'R'; header[1] = (byte)'I'; header[2] = (byte)'F'; header[3] = (byte)'F';
             BitConverter.GetBytes(riffSize).CopyTo(header, 4);
-            // "WAVE"
             header[8] = (byte)'W'; header[9] = (byte)'A'; header[10] = (byte)'V'; header[11] = (byte)'E';
-            // "fmt "
             header[12] = (byte)'f'; header[13] = (byte)'m'; header[14] = (byte)'t'; header[15] = (byte)' ';
-            BitConverter.GetBytes(16).CopyTo(header, 16);          // fmt chunk size
-            BitConverter.GetBytes((short)1).CopyTo(header, 20);    // PCM
-            BitConverter.GetBytes((short)1).CopyTo(header, 22);    // mono
-            BitConverter.GetBytes(16000).CopyTo(header, 24);       // sample rate
-            BitConverter.GetBytes(byteRate).CopyTo(header, 28);    // byte rate
-            BitConverter.GetBytes((short)2).CopyTo(header, 32);    // block align
-            BitConverter.GetBytes((short)16).CopyTo(header, 34);   // bits/sample
-            // "data"
+            BitConverter.GetBytes(16).CopyTo(header, 16);
+            BitConverter.GetBytes((short)1).CopyTo(header, 20);
+            BitConverter.GetBytes((short)1).CopyTo(header, 22);
+            BitConverter.GetBytes(_sessionSampleRate).CopyTo(header, 24);
+            BitConverter.GetBytes(byteRate).CopyTo(header, 28);
+            BitConverter.GetBytes((short)2).CopyTo(header, 32);
+            BitConverter.GetBytes((short)16).CopyTo(header, 34);
             header[36] = (byte)'d'; header[37] = (byte)'a'; header[38] = (byte)'t'; header[39] = (byte)'a';
             BitConverter.GetBytes(dataSize).CopyTo(header, 40);
 
@@ -302,8 +397,9 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
             _debugWavStream.Write(header, 0, 44);
             _debugWavStream.Flush();
             _debugWavStream.Dispose();
-            Logger.Information("Debug WAV saved: {Path} ({Samples} samples = {Sec:F2}s)",
-                _debugWavPath, _debugSampleCount, _debugSampleCount / 16000.0);
+            Logger.Information(
+                "Debug WAV saved: {Path} ({Samples} samples = {Sec:F2}s)",
+                _debugWavPath, _debugSampleCount, _debugSampleCount / (double)_sessionSampleRate);
         }
         catch (Exception ex)
         {
@@ -318,12 +414,12 @@ public sealed class SherpaOnnxProvider : ISpeechProvider, IAsyncDisposable
 
     private static float[] ConvertPcm16ToFloat(byte[] pcm16)
     {
-        int sampleCount = pcm16.Length / 2;
-        float[] samples = new float[sampleCount];
-        for (int i = 0; i < sampleCount; i++)
+        var sampleCount = pcm16.Length / 2;
+        var samples = new float[sampleCount];
+        for (var index = 0; index < sampleCount; index++)
         {
-            short sample = (short)(pcm16[i * 2] | (pcm16[i * 2 + 1] << 8));
-            samples[i] = sample / 32768.0f;
+            var sample = (short)(pcm16[index * 2] | (pcm16[index * 2 + 1] << 8));
+            samples[index] = sample / 32768.0f;
         }
         return samples;
     }

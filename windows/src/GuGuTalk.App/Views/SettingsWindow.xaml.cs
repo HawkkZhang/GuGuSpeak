@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using GuGuTalk.Core.Models;
 using GuGuTalk.Core.Services;
@@ -12,23 +13,60 @@ public partial class SettingsWindow : Window
 {
     private readonly AppSettings _settings;
     private readonly IHotkeyManager? _hotkeyManager;
+    private readonly HotwordStore _hotwordStore;
     private readonly IPermissionCoordinator _permissions;
     private readonly StackPanel[] _pages;
 
     public SettingsWindow(
         AppSettings settings,
+        HotwordStore hotwordStore,
         IHotkeyManager? hotkeyManager = null,
         IPermissionCoordinator? permissions = null)
     {
         InitializeComponent();
         _settings = settings;
+        _hotwordStore = hotwordStore;
         _hotkeyManager = hotkeyManager;
         _permissions = permissions ?? new PermissionCoordinator();
         _pages = [GeneralPage, ProviderPage, HotkeyPage, PostProcessPage, PermissionsPage, AboutPage];
 
         LoadSettings();
+        RefreshPersonalTerms();
         ShowPage(0);
         _ = RefreshPermissionsAsync();
+    }
+
+    private void AddPersonalTerm_Click(object sender, RoutedEventArgs e) => AddPersonalTerm();
+
+    private void PersonalTermInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        AddPersonalTerm();
+        e.Handled = true;
+    }
+
+    private void AddPersonalTerm()
+    {
+        string value = PersonalTermInput.Text.Trim();
+        if (value.Length == 0) return;
+        _hotwordStore.AddTerm(value);
+        PersonalTermInput.Clear();
+        RefreshPersonalTerms();
+    }
+
+    private void RemovePersonalTerm_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Guid id })
+        {
+            _hotwordStore.RemoveTerm(id);
+            RefreshPersonalTerms();
+        }
+    }
+
+    private void RefreshPersonalTerms()
+    {
+        PersonalTermList.ItemsSource = _hotwordStore.Terms.ToArray();
+        PersonalTermList.Visibility = _hotwordStore.IsEmpty ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>

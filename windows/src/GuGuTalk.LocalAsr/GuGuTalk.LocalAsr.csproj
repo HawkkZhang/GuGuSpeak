@@ -1,13 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>GuGuTalk.LocalAsr</RootNamespace>
-    <ModelName>sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17</ModelName>
-    <ModelArchive>$(ModelName).tar.bz2</ModelArchive>
-    <ModelUrl>https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$(ModelArchive)</ModelUrl>
+    <AsrModelName>sherpa-onnx-streaming-paraformer-bilingual-zh-en</AsrModelName>
+    <PunctuationModelName>sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8</PunctuationModelName>
+    <SemanticModelName>distilbert-base-multilingual-cased-onnx-int8</SemanticModelName>
     <ModelCacheDir>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', '..', '.modelcache'))</ModelCacheDir>
     <BundledModelsRoot>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', 'bundled-models'))</BundledModelsRoot>
-    <ModelOutputDir>$([System.IO.Path]::Combine('$(BundledModelsRoot)', '$(ModelName)'))</ModelOutputDir>
-    <ModelTokensPath>$([System.IO.Path]::Combine('$(ModelOutputDir)', 'tokens.txt'))</ModelTokensPath>
+    <AsrModelOutputDir>$([System.IO.Path]::Combine('$(BundledModelsRoot)', '$(AsrModelName)'))</AsrModelOutputDir>
+    <PunctuationModelOutputDir>$([System.IO.Path]::Combine('$(BundledModelsRoot)', '$(PunctuationModelName)'))</PunctuationModelOutputDir>
+    <SemanticModelOutputDir>$([System.IO.Path]::Combine('$(BundledModelsRoot)', '$(SemanticModelName)'))</SemanticModelOutputDir>
+    <AsrEncoderPath>$([System.IO.Path]::Combine('$(AsrModelOutputDir)', 'encoder.int8.onnx'))</AsrEncoderPath>
+    <AsrDecoderPath>$([System.IO.Path]::Combine('$(AsrModelOutputDir)', 'decoder.int8.onnx'))</AsrDecoderPath>
+    <AsrTokensPath>$([System.IO.Path]::Combine('$(AsrModelOutputDir)', 'tokens.txt'))</AsrTokensPath>
+    <PunctuationModelPath>$([System.IO.Path]::Combine('$(PunctuationModelOutputDir)', 'model.int8.onnx'))</PunctuationModelPath>
+    <SemanticModelPath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'model.int8.onnx'))</SemanticModelPath>
+    <SemanticVocabPath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'vocab.txt'))</SemanticVocabPath>
+    <SemanticPinyinPath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'pinyin.txt'))</SemanticPinyinPath>
+    <SemanticCmuDictPath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'cmudict.dict'))</SemanticCmuDictPath>
+    <SemanticLicensePath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'LICENSE'))</SemanticLicensePath>
+    <SemanticPinyinLicensePath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'PINYIN_LICENSE'))</SemanticPinyinLicensePath>
+    <SemanticCmuDictLicensePath>$([System.IO.Path]::Combine('$(SemanticModelOutputDir)', 'CMUDICT_LICENSE'))</SemanticCmuDictLicensePath>
     <SkipAsrModelDownload>false</SkipAsrModelDownload>
     <PowerShellExe Condition="'$(PowerShellExe)' == '' And '$(OS)' == 'Windows_NT'">powershell</PowerShellExe>
     <PowerShellExe Condition="'$(PowerShellExe)' == ''">pwsh</PowerShellExe>
@@ -21,20 +33,36 @@
     <PackageReference Include="org.k2fsa.sherpa.onnx" />
   </ItemGroup>
 
-  <!--
-    Model files are referenced from GuGuTalk.App.csproj directly (via <Content> +
-    BundledModelsDir property), so they end up in the App's output and publish
-    directories. We only download/extract them here.
-  -->
-
-  <Target Name="DownloadAsrModel"
+  <!-- The app project collects these generated files after Build/Publish so a
+       clean first build includes both CPU models in its output. -->
+  <Target Name="DownloadLocalAsrModels"
           BeforeTargets="BeforeBuild"
-          Condition="'$(SkipAsrModelDownload)' != 'true' And !Exists('$(ModelTokensPath)')">
-    <Exec Command="$(PowerShellExe) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)download-model.ps1&quot; -ModelName &quot;$(ModelName)&quot; -ModelUrl &quot;$(ModelUrl)&quot; -CacheDir &quot;$(ModelCacheDir)&quot; -OutDir &quot;$(BundledModelsRoot)&quot;"
+          Condition="'$(SkipAsrModelDownload)' != 'true' And (!Exists('$(AsrEncoderPath)') Or !Exists('$(AsrDecoderPath)') Or !Exists('$(AsrTokensPath)') Or !Exists('$(PunctuationModelPath)') Or !Exists('$(SemanticModelPath)') Or !Exists('$(SemanticVocabPath)') Or !Exists('$(SemanticPinyinPath)') Or !Exists('$(SemanticCmuDictPath)') Or !Exists('$(SemanticLicensePath)') Or !Exists('$(SemanticPinyinLicensePath)') Or !Exists('$(SemanticCmuDictLicensePath)'))">
+    <Exec Command="$(PowerShellExe) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)download-model.ps1&quot; -CacheDir &quot;$(ModelCacheDir)&quot; -OutDir &quot;$(BundledModelsRoot)&quot;"
           WorkingDirectory="$(MSBuildThisFileDirectory)" />
 
-    <Error Text="Model extraction failed: tokens.txt not found at $(ModelOutputDir)"
-           Condition="!Exists('$(ModelTokensPath)')" />
+    <Error Text="Model installation failed: encoder.int8.onnx not found at $(AsrModelOutputDir)"
+           Condition="!Exists('$(AsrEncoderPath)')" />
+    <Error Text="Model installation failed: decoder.int8.onnx not found at $(AsrModelOutputDir)"
+           Condition="!Exists('$(AsrDecoderPath)')" />
+    <Error Text="Model installation failed: tokens.txt not found at $(AsrModelOutputDir)"
+           Condition="!Exists('$(AsrTokensPath)')" />
+    <Error Text="Model installation failed: punctuation model.int8.onnx not found at $(PunctuationModelOutputDir)"
+           Condition="!Exists('$(PunctuationModelPath)')" />
+    <Error Text="Model installation failed: semantic model.int8.onnx not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticModelPath)')" />
+    <Error Text="Model installation failed: semantic vocab.txt not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticVocabPath)')" />
+    <Error Text="Model installation failed: semantic pinyin.txt not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticPinyinPath)')" />
+    <Error Text="Model installation failed: semantic cmudict.dict not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticCmuDictPath)')" />
+    <Error Text="Model installation failed: semantic LICENSE not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticLicensePath)')" />
+    <Error Text="Model installation failed: semantic PINYIN_LICENSE not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticPinyinLicensePath)')" />
+    <Error Text="Model installation failed: semantic CMUDICT_LICENSE not found at $(SemanticModelOutputDir)"
+           Condition="!Exists('$(SemanticCmuDictLicensePath)')" />
   </Target>
 
   <Target Name="CleanBundledModels" AfterTargets="Clean">

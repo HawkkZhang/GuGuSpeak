@@ -2,131 +2,167 @@ namespace GuGuTalk.LocalAsr;
 
 public static class ModelManager
 {
-    public const string DefaultModelName = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
+    public const string DefaultAsrModelName =
+        "sherpa-onnx-streaming-paraformer-bilingual-zh-en";
+    public const string DefaultPunctuationModelName =
+        "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8";
 
-    // Path next to the executable (used when WiX bundles models with the install)
-    private static string BundledModelsRoot => Path.Combine(
-        AppContext.BaseDirectory, "models");
+    private static string BundledModelsRoot => Path.Combine(AppContext.BaseDirectory, "models");
 
-    // Per-user override (model downloaded by app or manually placed by user)
     private static string UserModelsRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "GuGuTalk", "models");
 
-    private static string? EnvironmentModelDir
+    public static bool IsModelAvailable() =>
+        GetTokensPath() is not null
+        && GetEncoderPath() is not null
+        && GetDecoderPath() is not null
+        && GetPunctuationModelPath() is not null;
+
+    public static string GetAsrModelDirectory() =>
+        ResolveAsrModelDirectoryFromCandidates()
+        ?? Path.Combine(UserModelsRoot, DefaultAsrModelName);
+
+    public static string GetPunctuationModelDirectory() =>
+        ResolvePunctuationModelDirectoryFromCandidates()
+        ?? Path.Combine(UserModelsRoot, DefaultPunctuationModelName);
+
+    public static string? GetTokensPath() => GetAsrFile("tokens.txt");
+
+    public static string? GetEncoderPath() =>
+        GetAsrFile("encoder.int8.onnx") ?? GetAsrFile("encoder.onnx");
+
+    public static string? GetDecoderPath() =>
+        GetAsrFile("decoder.int8.onnx") ?? GetAsrFile("decoder.onnx");
+
+    public static string? GetPunctuationModelPath()
     {
-        get
-        {
-            var value = Environment.GetEnvironmentVariable("GUGUTALK_LOCAL_ASR_MODEL_DIR");
-            return string.IsNullOrWhiteSpace(value) ? null : Environment.ExpandEnvironmentVariables(value);
-        }
+        var directory = ResolvePunctuationModelDirectoryFromCandidates();
+        if (directory is null) return null;
+
+        var int8Model = Path.Combine(directory, "model.int8.onnx");
+        if (File.Exists(int8Model)) return int8Model;
+
+        var fp32Model = Path.Combine(directory, "model.onnx");
+        return File.Exists(fp32Model) ? fp32Model : null;
     }
 
-    /// <summary>
-    /// Returns the directory containing tokens.txt + onnx files. Search order:
-    /// explicit env override -> user override -> bundled (next to exe).
-    /// </summary>
-    public static string GetModelDirectory()
+    public static void EnsureUserModelDirectory() => Directory.CreateDirectory(UserModelsRoot);
+
+    private static string? GetAsrFile(string filename)
     {
-        if (EnvironmentModelDir is { } envDir)
-        {
-            var envPath = ResolveModelDir(envDir);
-            if (envPath is not null) return envPath;
-        }
-
-        var userPath = ResolveModelDir(UserModelsRoot);
-        if (userPath is not null) return userPath;
-
-        var bundledPath = ResolveModelDir(BundledModelsRoot);
-        if (bundledPath is not null) return bundledPath;
-
-        // Default to user dir (for download target)
-        return Path.Combine(UserModelsRoot, DefaultModelName);
+        var directory = ResolveAsrModelDirectoryFromCandidates();
+        if (directory is null) return null;
+        var path = Path.Combine(directory, filename);
+        return File.Exists(path) ? path : null;
     }
 
-    public static bool IsModelAvailable() => GetTokensPath() is not null && GetModelPath() is not null;
-
-    public static string? GetTokensPath()
+    private static string? ResolveAsrModelDirectoryFromCandidates()
     {
-        foreach (var root in CandidateRoots())
+        foreach (var root in AsrCandidateRoots())
         {
-            var dir = ResolveModelDir(root);
-            if (dir is null) continue;
-
-            var tokens = Path.Combine(dir, "tokens.txt");
-            if (File.Exists(tokens)) return tokens;
-        }
-        return null;
-    }
-
-    public static string? GetModelPath()
-    {
-        foreach (var root in CandidateRoots())
-        {
-            var dir = ResolveModelDir(root);
-            if (dir is null) continue;
-
-            var int8Model = Path.Combine(dir, "model.int8.onnx");
-            if (File.Exists(int8Model)) return int8Model;
-
-            var fp32Model = Path.Combine(dir, "model.onnx");
-            if (File.Exists(fp32Model)) return fp32Model;
+            var directory = ResolveAsrModelDirectory(root);
+            if (directory is not null) return directory;
         }
         return null;
     }
 
-    public static void EnsureUserModelDirectory()
+    private static string? ResolvePunctuationModelDirectoryFromCandidates()
     {
-        Directory.CreateDirectory(UserModelsRoot);
+        var punctuationOverride = EnvironmentDirectory("GUGUTALK_LOCAL_PUNCTUATION_MODEL_DIR");
+        if (punctuationOverride is not null)
+        {
+            var directory = ResolvePunctuationModelDirectory(punctuationOverride, allowDirect: true);
+            if (directory is not null) return directory;
+        }
+
+        foreach (var root in SharedCandidateRoots())
+        {
+            var directory = ResolvePunctuationModelDirectory(root, allowDirect: false);
+            if (directory is not null) return directory;
+        }
+
+        var asrOverride = EnvironmentDirectory("GUGUTALK_LOCAL_ASR_MODEL_DIR");
+        return asrOverride is null
+            ? null
+            : ResolvePunctuationModelDirectory(asrOverride, allowDirect: false);
     }
 
-    private static IEnumerable<string> CandidateRoots()
+    private static IEnumerable<string> AsrCandidateRoots()
     {
-        if (EnvironmentModelDir is { } envDir) yield return envDir;
+        var environment = EnvironmentDirectory("GUGUTALK_LOCAL_ASR_MODEL_DIR");
+        if (environment is not null) yield return environment;
+        foreach (var root in SharedCandidateRoots()) yield return root;
+    }
+
+    private static IEnumerable<string> SharedCandidateRoots()
+    {
         yield return UserModelsRoot;
         yield return BundledModelsRoot;
     }
 
-    /// <summary>
-    /// Looks for tokens.txt + SenseVoice model directly inside `root`, or one
-    /// level deep in named subdirs. Returns the directory that contains the
-    /// usable model files, or null if not found.
-    /// </summary>
-    private static string? ResolveModelDir(string root)
+    private static string? EnvironmentDirectory(string variableName)
+    {
+        var value = Environment.GetEnvironmentVariable(variableName);
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : Environment.ExpandEnvironmentVariables(value);
+    }
+
+    private static string? ResolveAsrModelDirectory(string root)
     {
         if (!Directory.Exists(root)) return null;
+        if (IsAsrModelDirectory(root)) return root;
 
-        // Direct hit: tokens.txt + model at root
-        if (IsSenseVoiceModelDir(root)) return root;
+        var candidates = EnumerateChildDirectories(root)
+            .Where(IsAsrModelDirectory)
+            .ToList();
+        return candidates.FirstOrDefault(path =>
+                   string.Equals(Path.GetFileName(path), DefaultAsrModelName, StringComparison.OrdinalIgnoreCase))
+               ?? candidates.FirstOrDefault(path =>
+                   Path.GetFileName(path).Contains("paraformer", StringComparison.OrdinalIgnoreCase))
+               ?? candidates.FirstOrDefault();
+    }
 
-        // One level deep: collect all subdirs with tokens.txt + model.
+    private static string? ResolvePunctuationModelDirectory(string root, bool allowDirect)
+    {
+        if (!Directory.Exists(root)) return null;
+        if (allowDirect && IsPunctuationModelDirectory(root)) return root;
+
+        var candidates = EnumerateChildDirectories(root)
+            .Where(path =>
+                string.Equals(Path.GetFileName(path), DefaultPunctuationModelName, StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileName(path).Contains("punct", StringComparison.OrdinalIgnoreCase))
+            .Where(IsPunctuationModelDirectory)
+            .ToList();
+        return candidates.FirstOrDefault(path =>
+                   string.Equals(Path.GetFileName(path), DefaultPunctuationModelName, StringComparison.OrdinalIgnoreCase))
+               ?? candidates.FirstOrDefault();
+    }
+
+    private static IEnumerable<string> EnumerateChildDirectories(string root)
+    {
         try
         {
-            var candidates = new List<string>();
-            foreach (var sub in Directory.EnumerateDirectories(root))
-            {
-                if (IsSenseVoiceModelDir(sub))
-                    candidates.Add(sub);
-            }
-
-            if (candidates.Count == 0) return null;
-
-            // Prefer the selected SenseVoice bundle if multiple ASR models exist.
-            var preferred = candidates.FirstOrDefault(c =>
-                string.Equals(Path.GetFileName(c), DefaultModelName, StringComparison.OrdinalIgnoreCase) ||
-                Path.GetFileName(c).Contains("sense-voice", StringComparison.OrdinalIgnoreCase));
-
-            return preferred ?? candidates[0];
+            return Directory.EnumerateDirectories(root).ToArray();
         }
-        catch { }
-
-        return null;
+        catch
+        {
+            return [];
+        }
     }
 
-    private static bool IsSenseVoiceModelDir(string dir)
+    private static bool IsAsrModelDirectory(string directory)
     {
-        if (!File.Exists(Path.Combine(dir, "tokens.txt"))) return false;
-        return File.Exists(Path.Combine(dir, "model.int8.onnx")) ||
-               File.Exists(Path.Combine(dir, "model.onnx"));
+        if (!File.Exists(Path.Combine(directory, "tokens.txt"))) return false;
+        var hasEncoder = File.Exists(Path.Combine(directory, "encoder.int8.onnx"))
+                         || File.Exists(Path.Combine(directory, "encoder.onnx"));
+        var hasDecoder = File.Exists(Path.Combine(directory, "decoder.int8.onnx"))
+                         || File.Exists(Path.Combine(directory, "decoder.onnx"));
+        return hasEncoder && hasDecoder;
     }
+
+    private static bool IsPunctuationModelDirectory(string directory) =>
+        File.Exists(Path.Combine(directory, "model.int8.onnx"))
+        || File.Exists(Path.Combine(directory, "model.onnx"));
 }

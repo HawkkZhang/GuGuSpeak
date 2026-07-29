@@ -23,15 +23,6 @@
     <Resource Include="Assets\app-icon.png" />
   </ItemGroup>
 
-  <!-- Bundle ASR model files into the app output directory (for both run and publish) -->
-  <ItemGroup Condition="Exists('$(BundledModelsDir)')">
-    <Content Include="$(BundledModelsDir)/**/*.onnx;$(BundledModelsDir)/**/tokens.txt">
-      <Link>models\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\GuGuTalk.Core\GuGuTalk.Core.csproj" />
     <ProjectReference Include="..\GuGuTalk.LocalAsr\GuGuTalk.LocalAsr.csproj" />
@@ -42,4 +33,24 @@
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
+
+  <!-- The LocalAsr project downloads the model during its build. Collect files
+       in targets so a clean first build does not miss them during evaluation. -->
+  <Target Name="CopyBundledAsrModelsToOutput" AfterTargets="Build">
+    <ItemGroup>
+      <_BundledAsrModel Include="$(BundledModelsDir)/**/*.onnx;$(BundledModelsDir)/**/*.txt;$(BundledModelsDir)/**/*.dict;$(BundledModelsDir)/**/LICENSE;$(BundledModelsDir)/**/PINYIN_LICENSE;$(BundledModelsDir)/**/CMUDICT_LICENSE" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_BundledAsrModel)"
+          DestinationFiles="@(_BundledAsrModel->'$(OutDir)models\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyBundledAsrModelsToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_PublishBundledAsrModel Include="$(BundledModelsDir)/**/*.onnx;$(BundledModelsDir)/**/*.txt;$(BundledModelsDir)/**/*.dict;$(BundledModelsDir)/**/LICENSE;$(BundledModelsDir)/**/PINYIN_LICENSE;$(BundledModelsDir)/**/CMUDICT_LICENSE" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PublishBundledAsrModel)"
+          DestinationFiles="@(_PublishBundledAsrModel->'$(PublishDir)models\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -12,6 +12,7 @@ public sealed class SmartPostProcessor
     private readonly HotwordStore _hotwordStore;
     private readonly LLMClient _llmClient;
     private readonly TranscriptPostProcessor _postProcessor = new();
+    private readonly PersonalLexiconCorrector _personalLexiconCorrector = new();
 
     public SmartPostProcessor(AppSettings settings, HotwordStore hotwordStore, LLMClient llmClient)
     {
@@ -34,35 +35,30 @@ public sealed class SmartPostProcessor
 
         if (string.IsNullOrEmpty(result)) return result;
 
-        if (!_settings.PostProcessingEnabled)
-            return ApplyPunctuationRules(result);
-
-        string? prompt = _settings.ActivePostProcessingPrompt;
-        if (string.IsNullOrEmpty(prompt))
-            return ApplyPunctuationRules(result);
-
-        if (!_settings.LlmProviderConfig.IsConfigured)
+        if (_settings.PostProcessingEnabled)
         {
-            Logger.Information("LLM not configured, skipping post-processing");
-            return ApplyPunctuationRules(result);
-        }
-
-        string systemPrompt = BuildSystemPrompt(prompt);
-
-        try
-        {
-            string llmResult = await _llmClient.CompleteAsync(systemPrompt, result, _settings.LlmProviderConfig);
-            if (!string.IsNullOrEmpty(llmResult))
+            string? prompt = _settings.ActivePostProcessingPrompt;
+            if (!string.IsNullOrEmpty(prompt) && _settings.LlmProviderConfig.IsConfigured)
             {
-                result = llmResult;
+                string systemPrompt = BuildSystemPrompt(prompt);
+                try
+                {
+                    string llmResult = await _llmClient.CompleteAsync(systemPrompt, result, _settings.LlmProviderConfig);
+                    if (!string.IsNullOrEmpty(llmResult)) result = llmResult;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "LLM post-processing failed, using rule-only result");
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "LLM post-processing failed, using rule-only result");
+            else if (!string.IsNullOrEmpty(prompt))
+            {
+                Logger.Information("LLM not configured, skipping post-processing");
+            }
         }
 
         result = _hotwordStore.ApplyReplacements(result);
+        result = await _personalLexiconCorrector.CorrectAsync(result, _hotwordStore.Terms);
         return ApplyPunctuationRules(result);
     }
 
@@ -70,7 +66,7 @@ public sealed class SmartPostProcessor
     {
         if (_hotwordStore.IsEmpty) return basePrompt;
 
-        var wordList = string.Join("、", _hotwordStore.Replacements.Select(r => r.Replacement));
+        var wordList = string.Join("、", _hotwordStore.Terms.Select(term => term.Text));
         return basePrompt + $"\n\n参考热词表（如果识别结果中有发音相近但拼写不同的词，优先使用热词表中的正确写法）：{wordList}";
     }
 

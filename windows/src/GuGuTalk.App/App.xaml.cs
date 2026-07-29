@@ -21,6 +21,7 @@ public partial class App : Application
     private KeyboardHook _keyboardHook = null!;
     private OverlayWindow _overlayWindow = null!;
     private SettingsWindow? _settingsWindow;
+    private HotwordStore _hotwordStore = null!;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -59,14 +60,14 @@ public partial class App : Application
         _audioEngine = new AudioCaptureEngine();
         _audioEngine.Prewarm();
 
-        var hotwordStore = new HotwordStore();
+        _hotwordStore = new HotwordStore();
         var llmClient = new LLMClient();
         var providerFactory = new ProviderFactory(_settings);
         var localProvider = new SherpaOnnxProvider();
         localProvider.Prewarm();
         providerFactory.RegisterLocalProvider(localProvider);
         var textInsertion = new TextInsertionService();
-        var postProcessor = new SmartPostProcessor(_settings, hotwordStore, llmClient);
+        var postProcessor = new SmartPostProcessor(_settings, _hotwordStore, llmClient);
 
         _hotkeyManager = new HotkeyManager(_settings);
         _orchestrator = new RecognitionOrchestrator(
@@ -112,7 +113,7 @@ public partial class App : Application
     {
         if (_settingsWindow is null || !_settingsWindow.IsLoaded)
         {
-            _settingsWindow = new SettingsWindow(_settings, _hotkeyManager);
+            _settingsWindow = new SettingsWindow(_settings, _hotwordStore, _hotkeyManager);
         }
         _settingsWindow.Show();
         _settingsWindow.Activate();
@@ -139,4 +140,3 @@ public partial class App : Application
         base.OnExit(e);
     }
 }
-

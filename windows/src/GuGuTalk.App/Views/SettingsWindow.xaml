@@ -62,7 +62,7 @@
                             <TextBlock Style="{StaticResource SectionLabel}" Text="识别模式" />
                             <ComboBox x:Name="ModeCombo" Width="220" Height="32"
                                       HorizontalAlignment="Left" Margin="0,0,0,8">
-                                <ComboBoxItem Content="本地 (sherpa-onnx)" />
+                                <ComboBoxItem Content="本地 (流式中英)" />
                                 <ComboBoxItem Content="豆包" />
                                 <ComboBoxItem Content="千问" />
                             </ComboBox>
@@ -215,18 +215,47 @@
 
                     <Border Style="{StaticResource SettingsCard}">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource SectionLabel}" Text="热词替换" />
-                            <DataGrid x:Name="HotwordGrid" AutoGenerateColumns="False"
-                                      CanUserAddRows="True" Height="180" Margin="0,4,0,0"
-                                      BorderBrush="{StaticResource BorderSubtleBrush}"
-                                      BorderThickness="1"
-                                      GridLinesVisibility="Horizontal"
-                                      HorizontalGridLinesBrush="{StaticResource BorderSubtleBrush}">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="原词" Binding="{Binding Pattern}" Width="*" />
-                                    <DataGridTextColumn Header="替换为" Binding="{Binding Replacement}" Width="*" />
-                                </DataGrid.Columns>
-                            </DataGrid>
+                            <TextBlock Style="{StaticResource SectionLabel}" Text="个性词" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="PersonalTermInput"
+                                         Grid.Column="0"
+                                         Style="{StaticResource SettingsTextBox}"
+                                         KeyDown="PersonalTermInput_KeyDown"
+                                         ToolTip="输入正确写法" />
+                                <Button Grid.Column="1"
+                                        Margin="8,0,0,0"
+                                        Padding="14,6"
+                                        Content="添加"
+                                        Click="AddPersonalTerm_Click" />
+                            </Grid>
+                            <ItemsControl x:Name="PersonalTermList" Margin="0,10,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid MinHeight="32">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       VerticalAlignment="Center"
+                                                       Text="{Binding Text}"
+                                                       Foreground="{StaticResource TextPrimaryBrush}" />
+                                            <Button Grid.Column="1"
+                                                    Width="30" Height="28"
+                                                    Padding="0"
+                                                    FontFamily="Segoe Fluent Icons"
+                                                    Content="&#xE74D;"
+                                                    Tag="{Binding Id}"
+                                                    ToolTip="删除个性词"
+                                                    Click="RemovePersonalTerm_Click" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </Border>
                 </StackPanel>

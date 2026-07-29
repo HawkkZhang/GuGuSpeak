@@ -2,6 +2,17 @@
 
 Snapshot at the point of switching machines. Branch: `fix/windows-build`.
 
+## Update - 2026-07-22
+
+- Local ASR now uses `OnlineRecognizer` with `sherpa-onnx-streaming-paraformer-bilingual-zh-en`. Every ordered audio chunk is decoded immediately and changed text emits `PartialTextUpdated` while recording.
+- CT-Transformer zh-en int8 punctuation is applied to partials at a 250 ms cadence and forced once on final. English-adjacent full-width punctuation is normalized to ASCII.
+- Provider endpoint detection remains disabled. Hold/toggle release controls the end; the stream receives 300 ms leading and 600 ms trailing padding before final drain.
+- The build downloads four checksum-pinned files into two named directories under `bundled-models/`. `GuGuTalk.App.csproj` continues to collect all ONNX, tokens, and LICENSE files after Build and Publish, including on a clean first build.
+- `scripts\smoke-local-asr.ps1` now feeds checksum-pinned official Paraformer WAVs in 100 ms chunks and verifies punctuated partials, punctuated final text, and mixed Chinese/English output.
+- Windows x64 compilation, xUnit execution, live microphone smoke, publish, and MSI contents still require verification on a Windows host. Do not claim these from macOS-only checks.
+
+The older SenseVoice sections below are retained as migration history and no longer describe the current local provider.
+
 ## Update - 2026-06-01
 
 The local Windows ASR path now targets SenseVoice, superseding the older 14M/Zipformer notes below.
@@ -130,6 +141,27 @@ What I'd try first on the next machine:
    altogether — most users don't care if the recognised text is left
    on the clipboard.
 
+## Personal lexicon implementation - 2026-07-23
+
+- Settings now stores only canonical personal terms. Existing `hotwords.json` replacement pairs migrate to canonical terms plus exact aliases.
+- All three recognition providers pass final text through the same local correction chain: dynamic pronunciation retrieval followed, when needed, by ONNX masked-language-model scoring.
+- The pinned semantic model is `onnx-community/distilbert-base-multilingual-cased-ONNX` revision `2e7303d946cfc9194a939e02efb46824eb440379`, int8 SHA-256 `4fa42d6f6e7d00dd734cdff3fd55b446dec3439de3f8c2e1d162e056969be343`.
+- `scripts/smoke-local-asr.ps1` now checks that semantic resources reach app output, pins the sherpa-provided native ONNX Runtime hash, and verifies both `会议/回忆` contexts on a Windows machine.
+- The model is lazy-loaded only for an ambiguous phonetic candidate; it never generates replacement text.
+- The ONNX call sites were checked against the official Microsoft.ML.OnnxRuntime 1.24.4 source: tensor constructors, `Run`, `AsTensor`, and `ReadOnlySpan<int>.Length` match that API. `SessionOptions` is disposed after session construction.
+- `org.k2fsa.sherpa.onnx.runtime.win-x64` 1.13.2 was inspected and its bundled native runtime reports ONNX Runtime 1.24.4, matching the managed semantic-scoring package.
+- Core references `Microsoft.ML.OnnxRuntime.Managed`, not the full native package. A `win-x64` publish probe showed that referencing both full packages selected Microsoft's dynamically linked `onnxruntime.dll` and introduced undeclared `MSVCP140/VCRUNTIME140` prerequisites. Managed-only binding keeps sherpa's statically linked 1.24.4 DLL as the single native runtime.
+- A temporary official .NET 8.0.423 SDK on Mac compiled the repository's actual C# personal-lexicon source with the product's managed-only ONNX binding plus sherpa native runtime and ran real inference successfully: `会议/回忆` changed only in the meeting context, and `咕咕 Talk` became `GuGuTalk`.
+- A source-linked test project ran all 12 current Windows Core tests successfully, covering punctuation, phonetic retrieval, mixed-script terms, the long-term/short-transcript boundary, and legacy replacement migration.
+- A second source-linked smoke exercised the actual `SmartPostProcessor.ProcessAsync` path with LLM disabled and produced the same three expected semantic results. This proves the corrector is in the provider-independent final-text pipeline, not only callable in isolation.
+- Both PowerShell scripts parse cleanly with the official Microsoft.PowerShell.SDK 7.4.6 parser. `download-model.ps1` was also executed against a verified local cache and produced the complete ASR, punctuation, and semantic output tree with the pinned hashes.
+- XAML, MSBuild, and WiX files are well-formed XML, and all three personal-term XAML event handlers resolve to methods in `SettingsWindow.xaml.cs`.
+- A native Windows run is still required for WPF rendering, Windows DLL loading, full `dotnet build/test`, local ASR smoke, and MSI packaging. The Mac evidence above validates the shared managed code and model-resource path but does not replace those OS-specific checks.
+- 2026-07-27: candidate retrieval was synchronized with macOS. It caches pronunciation signatures for the current small term list and supports Chinese readings, English/CamelCase, spelled letters, digits, common symbols, and mixed-script terms without term-specific rules or a built-in product dictionary.
+- English pronunciation uses checksum-pinned `cmusphinx/cmudict` revision `74790861f652b15e4ac49015a90074ad62a27690`; `cmudict.dict` SHA-256 is `81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22` and its license SHA-256 is `bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a`. English ARPABET and Chinese pinyin map into the same phoneme space, while unknown English words use a lightweight G2P fallback. CMUdict is only a general pronunciation resource; configured user terms remain the sole replacement vocabulary.
+- Spoken-token windows and weighted pronunciation edit distance replace canonical character-count windows. Overlapping accepted candidates choose the closest pronunciation first, preventing a wider semantic candidate from consuming adjacent words.
+- High-confidence formatting-sensitive terms and anchored/long exact Chinese homophones honor the user's configured spelling; short ambiguous Chinese homophones retain ONNX context screening. An official temporary .NET 8.0.423 SDK on Mac compiled the repository C# sources and ran 12/12 source-linked Core tests. Real-resource semantic and `SmartPostProcessor.ProcessAsync` smokes also passed for `会议/回忆` context and mixed-script spelling. Native Windows WPF rendering, Windows DLL loading, full solution build/test, local microphone smoke, and MSI packaging still require a Windows host.
+
 ## Build environment on the next machine
 
 The .NET 8 SDK is the only hard requirement. Last machine had it at
@@ -162,19 +194,17 @@ dotnet build installer/GuGuTalk.Installer.wixproj -c Release
 # MSI lands at installer/bin/Release/GuGuTalk.Installer.msi (~178MB)
 ```
 
-First build downloads the SenseVoice model
-(`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`, ~155MB archive / ~240MB extracted)
-into `windows/.modelcache/` and extracts it into
-`windows/src/GuGuTalk.LocalAsr/bundled-models/`.
+First build downloads the streaming Paraformer and CT-Transformer punctuation files (about 298 MiB total)
+into `windows/.modelcache/` and copies verified files into `windows/src/GuGuTalk.LocalAsr/bundled-models/`.
 `download-model.ps1` is idempotent; re-run if download fails.
 
 ## Architecture notes worth carrying forward
 
 - `sherpa-onnx` native recognizers should be treated as single-threaded
-  from managed code. Current SenseVoice calls are serialized behind
+  from managed code. Current Paraformer and punctuation calls are serialized behind
   `_recognizerLock` in `SherpaOnnxProvider`. Don't relax this.
-- The SenseVoice recognizer is loaded at app start via `Prewarm()` and
-  reused across hotkey presses. Loading per session re-introduces the
+- The Paraformer recognizer and punctuation model are loaded at app start via `Prewarm()` and
+  reused across hotkey presses. Only `OnlineStream` is recreated per session. Loading models per session re-introduces the
   keyboard-hook block.
 - Audio chunks must reach the recognizer in order. The original
   per-chunk `Task.Run` dispatch reordered chunks across threadpool
@@ -205,7 +235,7 @@ into `windows/.modelcache/` and extracts it into
 | User settings | `%APPDATA%\GuGuTalk\settings.json` |
 | Logs | `%LOCALAPPDATA%\GuGuTalk\logs\gugutalk-*.log` |
 | Per-session debug WAV | `%LOCALAPPDATA%\GuGuTalk\debug\session-*.wav` |
-| Bundled model | `windows\src\GuGuTalk.LocalAsr\bundled-models\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\` |
+| Bundled models | `windows\src\GuGuTalk.LocalAsr\bundled-models\` |
 | Model download cache | `windows\.modelcache\` |
 | Built MSI | `windows\installer\bin\Release\GuGuTalk.Installer.msi` |
 

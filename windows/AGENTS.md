@@ -54,7 +54,7 @@ dotnet run --project src/GuGuTalk.App
 dotnet test
 ```
 
-**首次构建会自动下载 sherpa-onnx SenseVoice int8 模型包**（约 155MB，解压后约 240MB），缓存到 `.modelcache/`。CI 应缓存这个目录。
+**首次构建会自动下载流式 Paraformer 中英 int8 模型、CT-Transformer 标点模型和个性词多语种语义模型**（合计约 428 MiB），缓存到 `.modelcache/`。CI 应缓存这个目录。
 
 ## 打包
 
@@ -67,12 +67,14 @@ dotnet build installer/GuGuTalk.Installer.wixproj -c Release
 
 ## 模型管理
 
-- 默认模型：`sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
+- 默认 ASR：`sherpa-onnx-streaming-paraformer-bilingual-zh-en`
+- 默认标点：`sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8`
+- 个性词语义评分：`distilbert-base-multilingual-cased-onnx-int8`（拼音召回命中后才加载）
 - 构建时下载到：`src/GuGuTalk.LocalAsr/bundled-models/`（gitignored）
 - 运行时搜索顺序（`ModelManager.GetTokensPath()`）：
   1. 用户目录：`%LOCALAPPDATA%\GuGuTalk\models\`（用户可放替换模型）
   2. 安装目录：`<exe>\models\`（MSI 内置）
-- 当前 provider 使用 sherpa-onnx OfflineRecognizer + SenseVoice；替换模型需提供 `tokens.txt` 和 `model.int8.onnx`/`model.onnx`
+- 当前 provider 使用 sherpa-onnx `OnlineRecognizer` + Paraformer，并用 `OfflinePunctuation` 对变化的 partial 和 final 补标点。替换 ASR 需提供 `tokens.txt`、encoder 和 decoder；替换标点需提供独立的 `model.int8.onnx`/`model.onnx`
 
 ## P/Invoke 注意事项
 

@@ -12,9 +12,13 @@
     <!-- UIAutomation -->
     <PackageVersion Include="FlaUI.Core" Version="4.0.0" />
     <PackageVersion Include="FlaUI.UIA3" Version="4.0.0" />
-    <!-- Local ASR. 1.13.2 provides the OfflineRecognizer SenseVoice bindings
-         used by the bundled 2024-07-17 int8 model. -->
+    <!-- Local ASR. 1.13.2 provides OnlineRecognizer Paraformer and
+         OfflinePunctuation bindings used by the bundled int8 models. -->
     <PackageVersion Include="org.k2fsa.sherpa.onnx" Version="1.13.2" />
+    <!-- Provider-independent personal-term semantic scoring. Use only the
+         managed binding so sherpa-onnx remains the single source of the aligned
+         1.24.4 native DLL in Windows publish output. -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.24.4" />
     <!-- Logging -->
     <PackageVersion Include="Serilog" Version="4.2.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="6.0.0" />
